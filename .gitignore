@@ -10,3 +10,6 @@ var/
 htmlcov/
 .nicegui/
 test-results/
+.terraform/
+*.tfstate*
+.terraform.lock.hcl
