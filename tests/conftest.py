@@ -16,7 +16,9 @@ os.environ["TP_ENVIRONMENT"] = "test"
 os.environ["TP_SECRET_KEY"] = "test-secret-key-0123456789-abcdefghijklmnop"
 os.environ["TP_RATE_LIMIT_PER_MINUTE"] = "100000"
 os.environ["TP_AUTH_RATE_LIMIT_PER_MINUTE"] = "100000"
-os.environ.pop("TP_ANTHROPIC_API_KEY", None)
+# Tests never call paid providers, even if a developer's .env contains keys (env vars override .env).
+os.environ["TP_ANTHROPIC_API_KEY"] = ""
+os.environ["TP_GROQ_API_KEY"] = ""
 
 import pytest  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402

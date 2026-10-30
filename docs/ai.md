@@ -42,8 +42,16 @@ readiness score is explanatory and is capped at 40 when a mandatory condition fa
 
 ## Models and cost control
 
-Defaults: `claude-opus-5-5` for extraction/copilot, `claude-haiku-5-5` for low-effort summaries (configurable). Server-side
-refusal fallbacks are enabled. Every call records tokens, latency and USD cost in `ai_usage_records`, increments the
+Providers are pluggable behind `app/ai/llm/client.py` (`TP_LLM_PROVIDER`):
+
+* `anthropic` — `claude-opus-5-5` for extraction/copilot, `claude-haiku-5-5` for low-effort summaries; structured outputs
+  and server-side refusal fallbacks.
+* `groq` — `openai/gpt-oss-120b` / `openai/gpt-oss-20b` over Groq's OpenAI-compatible API; JSON-schema outputs validated
+  with Pydantic (one automatic repair attempt), function calling for the copilot, retries with back-off on 429/5xx.
+
+Both backends expose the same structured-output, text and provider-neutral tool-conversation interfaces, so extraction,
+narratives and the copilot work unchanged. The requirement `metric` field is a closed vocabulary shared with the rule
+engine, so model output cannot invent metric names the engine would not recognise. Every call records tokens, latency and USD cost in `ai_usage_records`, increments the
 org's monthly `ai_tokens` counter (quota-enforced) and is attributed to the tender where applicable. Cost levers:
 deterministic parsing first, targeted page selection, hash-dedup of processed files (chunks/embeddings reused),
 embedding cache, model choice by task.
@@ -61,7 +69,19 @@ filtered by the caller's `organization_id` and current document versions. `retri
 citation correctness, unsupported-claim rate, abstention on unrelated and prompt-injection text, rule-engine accuracy
 and latency; with an API key it also evaluates the LLM extractor. Thresholds run in CI (`tests/unit/test_evaluations.py`).
 
-Current results (rule extractor + rule engine): precision 1.0, recall 1.0, field accuracy 1.0, abstention OK, rule
-accuracy 1.0. **Caveat:** the held-out set is small (12 extraction + 8 rule cases) and was written alongside the
-extractor; treat it as a regression gate, not evidence of real-world accuracy. Expanding it with real (anonymised)
-tenders is the most valuable next step. The LLM path has not been evaluated (no API key was configured).
+Current results:
+
+| Extractor | Precision | Recall | Critical-field accuracy | Citation correctness | Abstention | Latency (12 cases) |
+|---|---|---|---|---|---|---|
+| Rules | 1.00 | 1.00 | 1.00 | 1.00 | OK | ~1 ms |
+| Groq `openai/gpt-oss-120b` (production prompt) | 0.80 | 0.89 | 0.92 | 1.00 | OK | ~120 s |
+
+Rule-engine accuracy: 1.00. Groq differences: it splits an EMD clause into deposit + exemption, and sometimes types an
+IS product-conformity clause as a certification. Field accuracy rose from 0.68 to 0.92 after constraining `metric` to
+the rule-engine vocabulary and adding explicit conventions to the prompt. In production the LLM only *adds*
+requirements the rules missed (deduplicated by identity and by same-clause/same-kind), capped at 0.75 confidence so
+they always go to review. Measured cost: ~$0.006 to extract the three seeded tenders.
+
+**Caveat:** the held-out set is small (12 extraction + 8 rule cases) and was written alongside the rule extractor, which
+favours the rules. Treat it as a regression gate, not evidence of real-world accuracy; expanding it with real
+(anonymised) tenders is the most valuable next step.

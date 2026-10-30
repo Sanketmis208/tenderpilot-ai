@@ -30,12 +30,12 @@ another project (now DB 5).
 | A. Auth & multi-tenancy | Done: registration, login/logout, Argon2, sessions (TTL + idle), email verification & reset (token flows; email via SMTP when configured), orgs, switching, invitations (expiry/revoke), six roles, API tokens with scopes, suspension, deletion with purge job |
 | B. Onboarding & vault | Done: 4-step wizard, uploads (PDF/DOCX/XLSX/CSV/TXT/ZIP), classification with confidence, fact extraction with provenance, field/fact confirmation, immutable versions, expiry warnings |
 | 4. Ingestion | Done: upload, manual entry, SSRF-safe URL import, CSV feed. CPPP/GeM/state portals deliberately **unsupported** (no authorised API) and labelled so |
-| 5–6. Document & requirement intelligence | Done (rules); LLM extractor implemented with citation verification but **not exercised** (no API key). Textract adapter implemented, **not exercised** (no AWS credentials); scanned pages are flagged, not silently skipped |
+| 5–6. Document & requirement intelligence | Done. LLM extractor exercised with **Groq** (`openai/gpt-oss-120b`): rules + LLM merge, citation verification, evaluation in docs/ai.md. Anthropic backend implemented but not exercised (no key). Textract adapter implemented, **not exercised** (no AWS credentials); scanned pages are flagged, not silently skipped |
 | 7–8. Evidence graph & rule engine | Done, the most thoroughly tested part |
 | 9. Matching | Done (transparent weighted scoring; lexical hashing embeddings unless an embeddings endpoint is configured) |
 | 10. LangGraph | Done: tender-analysis workflow with Postgres checkpoints, interrupt/resume, budgets, cancellation; copilot graph |
 | 11. MCP | Done: 18 tools, HTTP + stdio + in-process; connectors are boundaries only (local-folder demo works) |
-| 12–13. RAG & copilot | Done; LLM mode untested without a key; rule mode labelled. Streaming is shown as tool-progress updates, not token streaming |
+| 12–13. RAG & copilot | Done; LLM mode exercised with Groq (tool calls over MCP, grounded answers, filtered citations); rule mode labelled. Streaming is shown as tool-progress updates, not token streaming |
 | 14–16. Bids, generation, BOQ | Done: tasks/comments/drafts/approvals with optimistic locking and four-eyes rule; DOCX/XLSX/PDF/ZIP exports verified to open; BOQ analysis, Decimal scenarios, formula-preserving export |
 | 17. Corrigenda | Done: versioned requirements, field and clause diffs, impact tasks, approval reopening policy, auto re-assessment |
 | 18. Notifications | Done: in-app, preferences, dedup, scheduled reminders, honest email status. SMTP delivery not exercised (no provider) |
@@ -61,7 +61,7 @@ domain + ACM certificate · SMTP provider · optional embeddings endpoint · a p
 
 ## Next actions
 
-1. Configure an Anthropic key, run `tenderpilot eval` and compare rule vs LLM extraction on real (anonymised) tenders.
+1. Run `tenderpilot eval` on real (anonymised) tenders and compare rules vs Groq vs Claude.
 2. Grow the evaluation set with real tenders and reviewer-labelled answers.
 3. Add ClamAV/GuardDuty malware scanning and Postgres RLS.
 4. `terraform plan` in a staging account; run the Deploy workflow; add error tracking and alarms.

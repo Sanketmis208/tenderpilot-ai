@@ -142,9 +142,10 @@ def _extract(db: Session, tender: Tender, parsed: ParsedDocument, run_budget=Non
 
         result, info = extract_with_llm(llm, parsed, db=db, org_id=tender.organization_id, tender_id=tender.id, budget=run_budget)
         known = {identity_key(r) for r in reqs}
-        added = [r for r in result.requirements if identity_key(r) not in known]
+        added = [r for r in result.requirements if identity_key(r) not in known and not any(_same_clause(r, k) for k in reqs)]
         for r in added:
             r.confidence = min(r.confidence, 0.75)  # LLM-only requirements always go to review
+        meta["_llm_added"] = {id(r) for r in added}
         reqs.extend(added)
         for name, value in result.fields.model_dump(exclude={"citations", "risk_clauses"}).items():
             if getattr(fields, name) is None and value is not None and name in result.fields.citations:
@@ -155,6 +156,23 @@ def _extract(db: Session, tender: Tender, parsed: ParsedDocument, run_budget=Non
     except (ServiceUnavailable, LLMRefused) as exc:
         meta["llm_status"] = f"failed: {exc}"
     return fields, reqs, meta
+
+
+def _norm_clause(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _same_clause(a: ExtractedRequirement, b: ExtractedRequirement) -> bool:
+    """Same tender clause read as the same kind of condition (catches re-typed or split duplicates).
+
+    A different obligation found in the same clause (e.g. 'type test reports shall be submitted' inside a
+    technical-conformity clause) differs in both type and metric and is kept.
+    """
+    qa, qb = _norm_clause(a.source_quote), _norm_clause(b.source_quote)
+    if not qa or not qb:
+        return False
+    overlap = qa[:60] in qb or qb[:60] in qa
+    return overlap and (a.req_type == b.req_type or (a.metric is not None and a.metric == b.metric))
 
 
 def _apply_fields(tender: Tender, fields: TenderFields, *, overwrite_manual: bool = False) -> list[dict]:
@@ -238,6 +256,7 @@ def extract_tender(db: Session, job: ProcessingJob, progress: Callable[[int, str
         progress(20 + 60 * i // max(1, len(sources)), f"analysing {ver.original_filename}")
         parsed = load_parsed(db, ver.id)
         fields, reqs, meta = _extract(db, tender, parsed)
+        llm_added = meta.pop("_llm_added", set())
         meta_all.append({"document_version_id": str(ver.id), **meta})
         changes = _apply_fields(tender, fields)
         merged_citations.update({k: {**v.model_dump(), "document_version_id": str(ver.id)} for k, v in fields.citations.items() if k not in merged_citations})
@@ -248,7 +267,7 @@ def extract_tender(db: Session, job: ProcessingJob, progress: Callable[[int, str
                 continue
             seen_ids.add(ident)
             all_reqs.append(_to_model(r, tender=tender, version_no=version_no, code=f"R-{len(all_reqs) + 1:03d}",
-                                      source_version=ver, parsed=parsed, method=meta["method"] if "llm" not in meta["method"] or r.confidence > 0.75 else "llm"))
+                                      source_version=ver, parsed=parsed, method="llm" if id(r) in llm_added else "rules"))
         log.info("tender.fields_applied", tender_id=str(tender.id), changes=len(changes))
     for model in all_reqs:
         db.add(model)

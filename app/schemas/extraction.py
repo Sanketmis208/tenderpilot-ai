@@ -22,10 +22,27 @@ ReqType = Literal[
 ]
 
 
+# Controlled vocabulary shared with the deterministic rule engine (rules.evaluate dispatches on these).
+Metric = Literal[
+    "average_annual_turnover",  # financial, threshold in INR, aggregation average
+    "annual_turnover",  # financial, threshold in INR, aggregation each
+    "net_worth",  # financial
+    "similar_work_value",  # experience: value of each similar completed work (INR); count_required = number of works
+    "years_in_business",  # experience: minimum years of experience/operation; threshold = years
+    "certificate_valid",  # certification: standard = e.g. "ISO 9001"
+    "registration",  # registration: standard = "GST" | "PAN" | "UDYAM" | "CIN"
+    "emd",  # earnest money deposit; threshold = amount in INR
+    "document",  # a document to submit; document_kind names it
+    "standard_compliance",  # technical: products conform to standards (IS/IEC/BIS codes) — not a certification
+    "state_presence",  # geographic; standard = state name
+    "consortium_allowed",  # consortium/JV; threshold "1" if permitted, "0" if not permitted
+]
+
+
 class ExtractedRequirement(BaseModel):
     req_type: ReqType
     title: str = Field(description="Short human-readable summary of the condition")
-    metric: str | None = Field(None, description="e.g. average_annual_turnover, similar_work_value, years_in_business")
+    metric: Metric | None = Field(None, description="Use the controlled vocabulary; null only for requirements no metric fits")
     operator: Literal[">=", ">", "<=", "<", "==", "exists", "in"] | None = None
     threshold_value: str | None = Field(None, description="Numeric threshold as a plain decimal string in base units (rupees, years, count)")
     threshold_unit: str | None = Field(None, description="INR | years | count | percent")

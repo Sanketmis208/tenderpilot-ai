@@ -26,6 +26,14 @@ def _doc(text: str) -> ParsedDocument:
     return ParsedDocument([ParsedPage(1, text, [ParsedBlock(text, [0, 0, 100, 20])])], "eval")
 
 
+def _same(a, b) -> bool:
+    """Numbers compare numerically ('20000000' == '20000000.00'); strings case-insensitively."""
+    try:
+        return Decimal(str(a)) == Decimal(str(b))
+    except Exception:
+        return str(a).strip().lower() == str(b).strip().lower()
+
+
 def _match(pred, gold) -> tuple[bool, int, int]:
     if pred.req_type != gold["req_type"]:
         return False, 0, 0
@@ -34,7 +42,7 @@ def _match(pred, gold) -> tuple[bool, int, int]:
         if k not in CRITICAL:
             continue
         total += 1
-        ok += str(getattr(pred, k)) == str(v)
+        ok += _same(getattr(pred, k), v)
     return True, ok, total
 
 
@@ -105,7 +113,9 @@ def main() -> dict:
         from app.schemas.extraction import LLMRequirementBatch
 
         def llm_extract(doc):
-            out = llm.structured(LLMRequirementBatch, f"Extract eligibility requirements.\n<document>{doc.full_text}</document>", purpose="eval")
+            from app.extraction.tender_llm import build_prompt
+
+            out = llm.structured(LLMRequirementBatch, build_prompt(doc.full_text, with_fields=False), purpose="eval")
             return verify_quotes(out.requirements, doc)[0]
 
         report["extraction_llm"] = eval_extraction(llm_extract)

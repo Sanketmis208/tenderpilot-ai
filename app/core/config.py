@@ -65,9 +65,14 @@ class Settings(BaseSettings):
     ocr_min_text_chars_per_page: int = 40
 
     # LLM / embeddings
+    llm_provider: str = "anthropic"  # anthropic | groq (any OpenAI-compatible chat-completions API)
     anthropic_api_key: SecretStr | None = None
     llm_model: str = "claude-opus-5-5"
     llm_fast_model: str = "claude-haiku-5-5"
+    groq_api_key: SecretStr | None = None
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_fast_model: str = "openai/gpt-oss-20b"
     llm_timeout_seconds: float = 60.0
     llm_max_output_tokens: int = 4096
     embedding_provider: str = "hashing"  # hashing | openai_compatible
@@ -118,7 +123,8 @@ class Settings(BaseSettings):
 
     @property
     def llm_configured(self) -> bool:
-        return self.anthropic_api_key is not None and bool(self.anthropic_api_key.get_secret_value())
+        key = self.groq_api_key if self.llm_provider == "groq" else self.anthropic_api_key
+        return key is not None and bool(key.get_secret_value())
 
     @property
     def sync_psycopg_dsn(self) -> str:
