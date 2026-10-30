@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import MutableMapping
 from contextvars import ContextVar
+from typing import Any
 
 import structlog
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 
-def _add_request_id(_: object, __: str, event_dict: dict) -> dict:
+def _add_request_id(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
     rid = request_id_var.get()
     if rid:
         event_dict["request_id"] = rid
@@ -21,7 +23,7 @@ def _add_request_id(_: object, __: str, event_dict: dict) -> dict:
 _REDACT_KEYS = {"password", "token", "secret", "authorization", "api_key", "cookie"}
 
 
-def _redact(_: object, __: str, event_dict: dict) -> dict:
+def _redact(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
     for key in list(event_dict):
         if any(k in key.lower() for k in _REDACT_KEYS):
             event_dict[key] = "***"

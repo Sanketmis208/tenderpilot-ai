@@ -234,7 +234,7 @@ def switch_organization(db: Session, sess: UserSession, org_id: uuid.UUID) -> No
 
 # ---- API tokens (MCP / programmatic access) ----
 
-API_TOKEN_PREFIX = "tpk_"
+API_TOKEN_PREFIX = "tpk_"  # noqa: S105 (public prefix, not a secret)
 
 
 def create_api_token(

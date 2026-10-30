@@ -250,8 +250,8 @@ def extract_tender(db: Session, job: ProcessingJob, progress: Callable[[int, str
             all_reqs.append(_to_model(r, tender=tender, version_no=version_no, code=f"R-{len(all_reqs) + 1:03d}",
                                       source_version=ver, parsed=parsed, method=meta["method"] if "llm" not in meta["method"] or r.confidence > 0.75 else "llm"))
         log.info("tender.fields_applied", tender_id=str(tender.id), changes=len(changes))
-    for r in all_reqs:
-        db.add(r)
+    for model in all_reqs:
+        db.add(model)
     tender.extraction = {
         **(tender.extraction or {}),
         "citations": merged_citations,

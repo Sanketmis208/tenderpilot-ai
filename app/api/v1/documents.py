@@ -72,7 +72,7 @@ def complete_upload(key: str = Form(...), filename: str = Form(...), category: s
     from app.storage.backend import assert_key_in_org
 
     assert_key_in_org(key, ctx.organization_id)
-    if f"/staging/" not in key:
+    if "/staging/" not in key:
         raise ValidationFailed("Invalid staging key.")
     storage = get_storage()
     data = storage.get(key)  # re-validated server-side exactly like a multipart upload

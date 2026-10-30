@@ -77,22 +77,21 @@ def fetch(url: str) -> Fetched:
         parts = urlsplit(current)
         # Pin to the vetted address; keep Host/SNI as the original hostname.
         target = parts._replace(netloc=f"{'[' + ip + ']' if ':' in ip else ip}:{port}").geturl()
-        with httpx.Client(timeout=20, follow_redirects=False, verify=True) as client:
-            with client.stream("GET", target, headers={"Host": host, "User-Agent": "TenderPilotAI-URLImport/1.0"},
-                               extensions={"sni_hostname": host}) as resp:
-                if resp.status_code in (301, 302, 303, 307, 308):
-                    loc = resp.headers.get("location")
-                    if not loc:
-                        raise ValidationFailed("Redirect without location.")
-                    current = urljoin(current, loc)
-                    continue
-                if resp.status_code != 200:
-                    raise ValidationFailed(f"The source returned HTTP {resp.status_code}. Upload an authorised copy instead.")
-                buf = bytearray()
-                for chunk in resp.iter_bytes():
-                    buf.extend(chunk)
-                    if len(buf) > s.url_import_max_bytes:
-                        raise ValidationFailed("Remote file exceeds the import size limit.")
-                name = parts.path.rsplit("/", 1)[-1] or "imported"
-                return Fetched(current, bytes(buf), resp.headers.get("content-type", ""), name)
+        with httpx.Client(timeout=20, follow_redirects=False, verify=True) as client, client.stream("GET", target, headers={"Host": host, "User-Agent": "TenderPilotAI-URLImport/1.0"},
+                           extensions={"sni_hostname": host}) as resp:
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("location")
+                if not loc:
+                    raise ValidationFailed("Redirect without location.")
+                current = urljoin(current, loc)
+                continue
+            if resp.status_code != 200:
+                raise ValidationFailed(f"The source returned HTTP {resp.status_code}. Upload an authorised copy instead.")
+            buf = bytearray()
+            for chunk in resp.iter_bytes():
+                buf.extend(chunk)
+                if len(buf) > s.url_import_max_bytes:
+                    raise ValidationFailed("Remote file exceeds the import size limit.")
+            name = parts.path.rsplit("/", 1)[-1] or "imported"
+            return Fetched(current, bytes(buf), resp.headers.get("content-type", ""), name)
     raise ValidationFailed("Too many redirects.")

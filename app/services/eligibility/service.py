@@ -233,10 +233,10 @@ def report(db: Session, ctx: TenantContext, assessment_id: uuid.UUID) -> dict[st
     reviews: dict[uuid.UUID, list] = {}
     for e in db.scalars(select(ReviewEvent).where(ReviewEvent.subject_type == "decision", ReviewEvent.subject_id.in_(dec_ids)).order_by(ReviewEvent.created_at)):
         reviews.setdefault(e.subject_id, []).append(e)
-    items = []
+    items: list[dict[str, Any]] = []
     for d, r in rows:
         items.append({"decision": d, "requirement": r, "links": links.get(d.id, []), "conflicts": conflicts.get(d.id, []), "reviews": reviews.get(d.id, [])})
-    missing_docs = sorted({g for it in items for g in it["decision"].gaps if g.lower().startswith(("upload", "prepare"))})
+    missing_docs = sorted({g for d, _ in rows for g in d.gaps if g.lower().startswith(("upload", "prepare"))})
     return {"assessment": a, "items": items, "missing_documents": missing_docs}
 
 

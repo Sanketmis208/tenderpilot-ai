@@ -62,10 +62,12 @@ extend-exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "SIM"]
-ignore = ["S101", "B008", "S311", "E501", "B904", "S608", "SIM108"]
+ignore = ["S101", "B008", "S311", "E501", "B904", "S608", "SIM108", "UP046"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "B"]
+"tests/**" = ["S", "B", "SIM117"]
+"app/ui/**" = ["SIM117", "B007", "B023"]
+"app/db/models/__init__.py" = ["F401"]
 "scripts/**" = ["S"]
 
 [tool.mypy]

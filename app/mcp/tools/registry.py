@@ -387,10 +387,9 @@ def call_tool(db: Session, ctx: TenantContext | None, name: str, arguments: dict
         if not org or org.status != "active":
             raise PermissionDenied("Organization is not active.")
         ctx.require(tool.perm)
-        if tool.mutation:
-            # Mutations need an explicit grant: a write-scoped token (external MCP) or an approved copilot action.
-            if not allow_mutations and not (ctx.scopes and (WRITE_SCOPE in ctx.scopes or "*" in ctx.scopes)):
-                raise PermissionDenied(f"'{name}' modifies data and requires explicit approval or an mcp:write token scope.")
+        # Mutations need an explicit grant: a write-scoped token (external MCP) or an approved copilot action.
+        if tool.mutation and not allow_mutations and not (ctx.scopes and (WRITE_SCOPE in ctx.scopes or "*" in ctx.scopes)):
+            raise PermissionDenied(f"'{name}' modifies data and requires explicit approval or an mcp:write token scope.")
         try:
             args = tool.args.model_validate(arguments or {})
         except ValidationError as exc:

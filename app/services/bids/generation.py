@@ -337,20 +337,21 @@ def export_package(db: Session, ctx: TenantContext, workspace_id: uuid.UUID) -> 
         for lk in it["links"]:
             if lk.origin == "rule" and lk.relation in ("supports", "partial") and lk.document_version_id:
                 supporting[lk.document_version_id] = lk.label or "document"
-    manifest = {"tender": {"title": tender.title, "reference": tender.reference_number, "version": tender.current_version_no},
+    manifest_files: list[dict[str, Any]] = []
+    manifest: dict[str, Any] = {"tender": {"title": tender.title, "reference": tender.reference_number, "version": tender.current_version_no},
                 "bid_status": ws.status, "generated_at": datetime.now(IST).isoformat(), "assessment_id": str(aid),
                 "notice": "Prepared for EXTERNAL submission by the bidder through the official portal. TenderPilot AI does not submit bids.",
-                "files": []}
+                "files": manifest_files}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, data, _ in files:
             zf.writestr(f"01_generated/{name}", data)
-            manifest["files"].append({"path": f"01_generated/{name}", "sha256": hashlib.sha256(data).hexdigest()})
+            manifest_files.append({"path": f"01_generated/{name}", "sha256": hashlib.sha256(data).hexdigest()})
         for vid, label in supporting.items():
             data, ver = documents.read_bytes(db, ctx, vid)
             path = f"02_supporting/{ver.original_filename}"
             zf.writestr(path, data)
-            manifest["files"].append({"path": path, "sha256": ver.sha256, "document_version_id": str(vid), "label": label})
+            manifest_files.append({"path": path, "sha256": ver.sha256, "document_version_id": str(vid), "label": label})
         zf.writestr("manifest.json", json.dumps(manifest, indent=2))
     pkg = _store(db, ctx, ws, "submission_package", "zip", buf.getvalue(), f"{stamp}_submission_package.zip", draft=None, assessment_id=aid, snapshot=snap)
     audit.record(db, "bid.package_exported", ctx=ctx, subject_type="bid_workspace", subject_id=ws.id,

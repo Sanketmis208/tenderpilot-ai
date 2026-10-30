@@ -24,7 +24,12 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Any
 
 from app.db.models.eligibility import DecisionStatus as D
-from app.extraction.normalization.values import FY_RE, format_inr, normalise_fiscal_year, previous_fiscal_years
+from app.extraction.normalization.values import (
+    FY_RE,
+    format_inr,
+    normalise_fiscal_year,
+    previous_fiscal_years,
+)
 
 
 @dataclass(frozen=True)
@@ -251,7 +256,8 @@ def rule_years_in_business(req: ReqView, ev: CompanyEvidence, reference: date, p
         yrs = _years_between(inc, reference)
         comp.update({"established": inc.isoformat(), "years": str(yrs)})
         ok = yrs >= need
-        earliest = min((f.values.get("start_date") or f.values.get("completion_date") for f in projects), default=None)
+        dated = [d for f in projects if (d := f.values.get("start_date") or f.values.get("completion_date"))]
+        earliest = min(dated, default=None)
         expl = f"Incorporated {inc:%d %b %Y} — {yrs} years before the reference date."
         if earliest:
             expl += f" Earliest dated project activity on file: {earliest:%b %Y}."
@@ -383,7 +389,7 @@ def rule_document(req: ReqView, ev: CompanyEvidence, reference: date, policy: Po
     comp: dict[str, Any] = {"document_kind": kind, "matched_categories": cats, "found": len(docs)}
     if kind == "financial_statement" and req.period_years:
         years = required_fiscal_years(req, reference)
-        covered = sorted({f.values.get("fiscal_year") for f in ev.financials if f.values.get("audited")} & set(years))
+        covered = sorted({str(f.values["fiscal_year"]) for f in ev.financials if f.values.get("audited")} & set(years))
         comp.update({"required_years": years, "audited_years_found": covered})
         missing = [y for y in years if y not in covered]
         if missing:
@@ -403,7 +409,9 @@ def rule_document(req: ReqView, ev: CompanyEvidence, reference: date, policy: Po
 
 def rule_standard_compliance(req: ReqView, ev: CompanyEvidence, reference: date, policy: Policy) -> RuleResult:
     stds = [s.strip() for s in (req.parameters.get("standard") or "").split(";") if s.strip()]
-    found, missing, used = [], [], []
+    found: list[str] = []
+    missing: list[str] = []
+    used: list[EvidenceUse] = []
     for s in stds:
         hits = ev.text_hits.get(s, [])
         (found if hits else missing).append(s)
@@ -467,7 +475,7 @@ def evaluate(req: ReqView, ev: CompanyEvidence, reference: date, policy: Policy 
 
 # ---- assessment summary ----
 
-WEIGHT = {D.VERIFIED_SATISFIED: 1.0, D.NOT_APPLICABLE: 1.0, D.NEEDS_HUMAN_REVIEW: 0.5, D.CONFLICTING_EVIDENCE: 0.25,
+WEIGHT: dict[str, float] = {D.VERIFIED_SATISFIED: 1.0, D.NOT_APPLICABLE: 1.0, D.NEEDS_HUMAN_REVIEW: 0.5, D.CONFLICTING_EVIDENCE: 0.25,
           D.INSUFFICIENT_EVIDENCE: 0.25, D.VERIFIED_NOT_SATISFIED: 0.0}
 
 

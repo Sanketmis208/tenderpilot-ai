@@ -134,9 +134,10 @@ def shell(request: Request, active: str):
         def switch(e):
             if e.value and e.value != str(pc.ctx.organization_id):
                 def do(db):
-                    from app.db.models import UserSession
-                    from app.core.security import hash_token
                     from sqlalchemy import select
+
+                    from app.core.security import hash_token
+                    from app.db.models import UserSession
 
                     sess = db.scalar(select(UserSession).where(UserSession.token_hash == hash_token(pc.session_token or "")))
                     auth_service.switch_organization(db, sess, uuid.UUID(e.value))

@@ -16,7 +16,16 @@ from app.ai.retrieval.embeddings import get_embedder
 from app.auth.context import TenantContext
 from app.auth.permissions import Perm
 from app.db.base import utcnow
-from app.db.models import CompanyProduct, CompanyProfile, CompanyProject, EligibilityAssessment, FactStatus, Tender, TenderMatch, TenderStatus
+from app.db.models import (
+    CompanyProduct,
+    CompanyProfile,
+    CompanyProject,
+    EligibilityAssessment,
+    FactStatus,
+    Tender,
+    TenderMatch,
+    TenderStatus,
+)
 from app.extraction.normalization.values import format_inr_short
 
 DEFAULT_WEIGHTS = {"relevance": 0.35, "geography": 0.15, "financial": 0.15, "experience": 0.15, "deadline": 0.10, "eligibility": 0.10}
@@ -68,7 +77,7 @@ def score_tender(t: Tender, prof: CompanyProfile | None, products: list[str], pr
     else:
         dl = 0.5
     breakdown["deadline"] = dl
-    elig = {"eligible_per_policy": 1.0, "needs_review": 0.7, "gaps_found": 0.4, "not_eligible": 0.1}.get(assessment.overall_status if assessment else "", 0.5)
+    elig = {"eligible_per_policy": 1.0, "needs_review": 0.7, "gaps_found": 0.4, "not_eligible": 0.1}.get((assessment.overall_status or "") if assessment else "", 0.5)
     breakdown["eligibility"] = elig
     reasons.append(f"Latest assessment: {assessment.overall_status.replace('_', ' ')}" if assessment and assessment.overall_status else "Eligibility not yet assessed")
     total = sum(weights.get(k, 0) * v for k, v in breakdown.items()) / max(sum(weights.values()), 1e-9)
@@ -80,7 +89,7 @@ def recompute(db: Session, ctx: TenantContext) -> int:
     from app.db.models import Organization
 
     org = db.get(Organization, ctx.organization_id)
-    weights = {**DEFAULT_WEIGHTS, **((org.settings or {}).get("match_weights") or {})}
+    weights = {**DEFAULT_WEIGHTS, **(((org.settings if org else None) or {}).get("match_weights") or {})}
     prof = db.scalar(select(CompanyProfile).where(CompanyProfile.organization_id == ctx.organization_id))
     products = list(db.scalars(select(CompanyProduct.name).where(CompanyProduct.organization_id == ctx.organization_id, CompanyProduct.status != FactStatus.SUPERSEDED)))
     projects = list(db.scalars(select(CompanyProject).where(CompanyProject.organization_id == ctx.organization_id, CompanyProject.status != FactStatus.SUPERSEDED)))
@@ -111,9 +120,11 @@ def set_action(db: Session, ctx: TenantContext, tender_id: uuid.UUID, action: st
     if not m:
         recompute(db, ctx)
         m = db.scalar(select(TenderMatch).where(TenderMatch.organization_id == ctx.organization_id, TenderMatch.tender_id == tender_id))
-    if action not in (None, "shortlisted", "dismissed"):
-        from app.core.errors import ValidationFailed
+    from app.core.errors import NotFound, ValidationFailed
 
+    if m is None:
+        raise NotFound("Tender not found.")
+    if action not in (None, "shortlisted", "dismissed"):
         raise ValidationFailed("Unknown action.")
     m.user_action = action
     if assignee_id:

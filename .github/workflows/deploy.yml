@@ -1,0 +1,33 @@
+# Manual deployment template. Requires: secrets.AWS_ROLE_ARN (GitHub OIDC role), vars.AWS_REGION,
+# vars.ECR_REPOSITORY, vars.ECS_CLUSTER, vars.ECS_NETWORK_CONFIG — all produced by infra/aws (Terraform).
+name: Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment: { description: "staging or production", required: true, default: staging }
+
+permissions: { id-token: write, contents: read }
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: "${{ secrets.AWS_ROLE_ARN }}", aws-region: "${{ vars.AWS_REGION }}" }
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push image
+        run: |
+          IMAGE=${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+          docker build -t "$IMAGE" . && docker push "$IMAGE"
+      - name: Run migrations (one-off Fargate task)
+        run: |
+          aws ecs run-task --cluster "${{ vars.ECS_CLUSTER }}" --task-definition tenderpilot-migrate --launch-type FARGATE \
+            --network-configuration '${{ vars.ECS_NETWORK_CONFIG }}'
+      - name: Roll services
+        run: |
+          for svc in web worker beat; do
+            aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "tenderpilot-$svc" --force-new-deployment > /dev/null
+          done

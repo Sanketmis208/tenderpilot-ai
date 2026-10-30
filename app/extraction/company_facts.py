@@ -236,10 +236,7 @@ def extract_company_facts(doc: ParsedDocument, category: str) -> FactExtraction:
         _products(doc, out)
     elif category == C.MSME_REGISTRATION:
         _msme(doc, out)
-    elif category == C.COMPANY_REGISTRATION:
-        start, _ = _validity(doc)
-        out.issued_on = start[0] if start else None
-    elif category == C.GST_CERTIFICATE:
+    elif category == C.COMPANY_REGISTRATION or category == C.GST_CERTIFICATE:
         start, _ = _validity(doc)
         out.issued_on = start[0] if start else None
     if out.expires_on is None and category not in (C.FINANCIAL_STATEMENT, C.TURNOVER_CERTIFICATE):

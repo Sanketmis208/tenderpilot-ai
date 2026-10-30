@@ -149,15 +149,15 @@ def _persist_facts(db: Session, doc: Document, ver: DocumentVersion, parsed: Par
     fx = extract_company_facts(parsed, doc.category)
     ver.issued_on, ver.expires_on = fx.issued_on, fx.expires_on
     ver.identifiers = fx.identifiers
-    for f in fx.fields:
+    for field in fx.fields:
         db.add(
             DocumentField(
                 organization_id=ver.organization_id,
                 version_id=ver.id,
-                name=f["name"],
-                value=f["value"],
-                confidence=f["confidence"],
-                needs_confirmation=f["confidence"] < 0.8,
+                name=field["name"],
+                value=field["value"],
+                confidence=field["confidence"],
+                needs_confirmation=field["confidence"] < 0.8,
             )
         )
     common = lambda f: {  # noqa: E731

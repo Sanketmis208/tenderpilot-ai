@@ -56,6 +56,7 @@ def _user(db: Session, email: str, name: str) -> User:
 
 def _ctx(db: Session, user: User, org: Organization) -> TenantContext:
     m = db.scalar(select(OrganizationMember).where(OrganizationMember.user_id == user.id, OrganizationMember.organization_id == org.id))
+    assert m is not None, "seed membership missing"
     return TenantContext(user_id=user.id, organization_id=org.id, role=m.role, email=user.email, channel="seed")
 
 

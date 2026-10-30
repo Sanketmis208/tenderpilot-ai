@@ -247,7 +247,7 @@ def evidence_graph(request: Request, assessment_id: str):
         except AppError as exc:
             ui.label(exc.message).classes("text-negative")
             return
-        ui.link(f"← Assessment report", f"/assessments/{aid}").classes("tp-link text-caption")
+        ui.link("← Assessment report", f"/assessments/{aid}").classes("tp-link text-caption")
         ui.label(f"Requirements-to-Evidence Graph · {title}").classes("tp-h1")
         ui.label("Requirements (coloured by status) on the left, your documents on the right. Click an edge to open the cited page.").classes("tp-muted")
         reqs = [n for n in g["nodes"] if n["kind"] == "requirement"]

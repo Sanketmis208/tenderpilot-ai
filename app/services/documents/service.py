@@ -174,7 +174,7 @@ def list_documents(
         v.id: v
         for v in db.scalars(select(DocumentVersion).where(DocumentVersion.id.in_([d.current_version_id for d in docs if d.current_version_id])))
     }
-    return [(d, versions.get(d.current_version_id)) for d in docs], int(total)
+    return [(d, versions.get(d.current_version_id) if d.current_version_id else None) for d in docs], int(total)
 
 
 def get_document(db: Session, ctx: TenantContext, document_id: uuid.UUID) -> Document:

@@ -119,9 +119,9 @@ class TestCrypto:
 
 
 def test_signed_local_download_url():
-    from app.storage.backend import LocalStorage
-
     import time
+
+    from app.storage.backend import LocalStorage
 
     exp = int(time.time()) + 60
     sig = LocalStorage.sign("org/x/a.pdf", exp)

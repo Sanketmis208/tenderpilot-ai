@@ -234,7 +234,8 @@ class MCPAuthGuard:
 app.mount("/mcp", MCPAuthGuard(mcp_http_app))
 
 # ---- NiceGUI UI ----
-from app.ui import pages  # noqa: E402,F401  (registers @ui.page routes)
 from nicegui import ui  # noqa: E402
+
+from app.ui import pages  # noqa: E402,F401  (registers @ui.page routes)
 
 ui.run_with(app, title="TenderPilot AI", favicon="🧭", storage_secret=settings.secret_key.get_secret_value(), show_welcome_message=False)

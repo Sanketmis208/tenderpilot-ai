@@ -17,9 +17,9 @@ from app.db.models import Document, Organization, Role, Tender, User
 from app.db.session import session_scope
 from app.extraction.normalization.values import IST, format_inr, format_inr_short
 from app.integrations.connectors import CONNECTORS
-from app.services.billing import entitlements
 from app.services.bids import generation
 from app.services.bids import service as bids
+from app.services.billing import entitlements
 from app.services.boq import service as boq
 from app.services.notifications import service as notifications
 from app.services.organizations import auth_service, org_service

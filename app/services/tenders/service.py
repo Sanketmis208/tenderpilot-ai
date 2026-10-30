@@ -161,7 +161,7 @@ def list_tenders(db: Session, ctx: TenantContext, *, q: str | None = None, statu
     if closing_before:
         base = base.where(Tender.submission_deadline <= closing_before)
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
-    order = {
+    order: Any = {
         "deadline": Tender.submission_deadline.asc().nulls_last(),
         "value": Tender.estimated_value.desc().nulls_last(),
         "newest": Tender.created_at.desc(),

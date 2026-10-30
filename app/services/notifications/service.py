@@ -223,6 +223,8 @@ def send_expiry_warnings(db: Session) -> int:
     ).all()
     sent = 0
     for v, d in rows:
+        if v.expires_on is None:  # excluded by the query; narrows the type
+            continue
         state = "has expired" if v.expires_on < today else f"expires on {v.expires_on:%d %b %Y}"
         sent += notify_roles(
             db,

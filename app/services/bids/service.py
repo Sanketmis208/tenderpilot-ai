@@ -258,8 +258,8 @@ def approval_action(db: Session, ctx: TenantContext, workspace_id: uuid.UUID, ac
         raise Conflict("The bid status changed meanwhile. Reload and retry.")
     tender = db.get(Tender, ws.tender_id)
     if tender:
-        target = {B.INTERNAL_REVIEW: TenderStatus.AWAITING_APPROVAL, B.READY_FOR_SUBMISSION: TenderStatus.READY_FOR_SUBMISSION,
-                  B.CHANGES_REQUESTED: TenderStatus.BID_PREPARATION, B.DRAFT: TenderStatus.BID_PREPARATION}.get(to)
+        target: str | None = {B.INTERNAL_REVIEW: TenderStatus.AWAITING_APPROVAL, B.READY_FOR_SUBMISSION: TenderStatus.READY_FOR_SUBMISSION,
+                  B.CHANGES_REQUESTED: TenderStatus.BID_PREPARATION, B.DRAFT: TenderStatus.BID_PREPARATION}.get(B(to))
         if target and target in lifecycle.allowed_next(tender.status):
             lifecycle.transition(db, ctx, tender, target, f"Bid {action.replace('_', ' ')}", system=True)
     if action == "submit_for_review":

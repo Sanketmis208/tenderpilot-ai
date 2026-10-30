@@ -15,7 +15,6 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
 
 from tests.conftest import login
 
@@ -55,7 +54,7 @@ def test_01_tender_stored_and_extracted(bm, seeded):
     assert {"financial", "experience", "certification", "technical", "document"} <= types
     for r in reqs:
         assert r["source_page"] and r["source_text"] and r["source_document_version_id"]
-    docs = c.get(f"/api/v1/documents?scope=tender").json()
+    docs = c.get("/api/v1/documents?scope=tender").json()
     assert any(d["category"] == "boq" for d in docs["items"])
 
 

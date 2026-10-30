@@ -23,7 +23,15 @@ from sqlalchemy.orm import Session
 from app.auth.context import TenantContext
 from app.auth.permissions import Perm
 from app.core.errors import NotFound, ValidationFailed
-from app.db.models import BoqImport, BoqItem, BoqScenario, Document, DocumentScope, DocumentVersion, TenderDocument
+from app.db.models import (
+    BoqImport,
+    BoqItem,
+    BoqScenario,
+    Document,
+    DocumentScope,
+    DocumentVersion,
+    TenderDocument,
+)
 from app.services import audit
 from app.services.documents import service as documents
 from app.services.tenders.service import get_tender
@@ -75,11 +83,12 @@ def analyse_workbook(data: bytes) -> dict[str, Any]:
         raise ValidationFailed("No BOQ sheet found (expected columns like Description, Unit, Quantity, Rate/Amount).")
     ws, (header_row, cols) = max(candidates, key=lambda c: c[0].max_row)
     protected = bool(ws.protection.sheet)
-    items, issues = [], []
+    items: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]] = []
     seen: dict[str, list[int]] = defaultdict(list)
     units_by_desc: dict[str, set[str]] = defaultdict(set)
     for r in range(header_row + 1, ws.max_row + 1):
-        get = lambda k: ws.cell(r, cols[k]).value if k in cols else None  # noqa: E731
+        get = lambda k, r=r: ws.cell(r, cols[k]).value if k in cols else None  # noqa: E731
         desc = get("description")
         if desc is None or str(desc).strip() == "":
             continue
@@ -93,7 +102,7 @@ def analyse_workbook(data: bytes) -> dict[str, Any]:
         is_subtotal = bool(re.search(r"\b(sub-?total|grand total|total)\b", low)) and not unit
         is_tax = bool(re.search(r"\bgst\b|\btax\b|\bcess\b", low)) and not unit
         is_heading = not unit and qty_raw in (None, "") and not is_subtotal and not is_tax
-        item_issues: list[str] = []
+        item_issues: list[str] = []  # appended to below
         qty = _dec(qty_raw) if not (isinstance(qty_raw, str) and qty_raw.startswith("=")) else None
         if not (is_heading or is_subtotal or is_tax):
             if qty is None:
@@ -219,7 +228,9 @@ def save_scenario(db: Session, ctx: TenantContext, import_id: uuid.UUID, name: s
         if d is None or d < 0:
             raise ValidationFailed(f"Invalid rate '{v}'.")
         parsed[k] = d
-    mk, gst = _dec(markup_pct) or Decimal(0), _dec(gst_pct) if _dec(gst_pct) is not None else Decimal(18)
+    mk = _dec(markup_pct) or Decimal(0)
+    gst_val = _dec(gst_pct)
+    gst = gst_val if gst_val is not None else Decimal(18)
     totals = compute_totals(its, parsed, mk, gst)
     sc = db.scalar(select(BoqScenario).where(BoqScenario.id == scenario_id, BoqScenario.organization_id == ctx.organization_id)) if scenario_id else None
     if sc is None:

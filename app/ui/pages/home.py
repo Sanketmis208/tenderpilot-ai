@@ -45,9 +45,9 @@ def onboarding(request: Request):
 
                 def create():
                     def do(db):
-                        from app.db.models import User, UserSession
                         from app.core.config import get_settings
                         from app.core.security import hash_token
+                        from app.db.models import User, UserSession
 
                         org = org_service.create_organization(db, db.get(User, uid), name.value or "")
                         db.flush()

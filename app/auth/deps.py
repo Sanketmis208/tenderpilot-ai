@@ -38,6 +38,8 @@ def resolve_principal(request: Request, db: Session, *, enforce_csrf: bool = Tru
         if not ctx:
             raise Unauthenticated("Invalid or expired API token.")
         user = db.get(User, ctx.user_id)
+        if user is None:
+            raise Unauthenticated("Invalid or expired API token.")
         return Principal(user, None, TenantContext(**{**ctx.__dict__, "request_id": request_id_var.get(), "ip_address": client_ip(request)}))
     raw = request.cookies.get(get_settings().session_cookie_name)
     resolved = auth_service.resolve_session(db, raw)
