@@ -1,0 +1,88 @@
+[project]
+name = "tenderpilot-ai"
+version = "0.1.0"
+description = "TenderPilot AI — intelligent tender & procurement operating system"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.20.1",
+    "anthropic>=2.3.0",
+    "argon2-cffi>=25.1.0",
+    "boto3>=1.43.122",
+    "celery[redis]>=5.6",
+    "email-validator>=2.3.0",
+    "fastapi>=0.162",
+    "httpx>=0.28.1",
+    "langgraph>=1.2",
+    "langgraph-checkpoint-postgres>=3.2",
+    "mcp>=2.3",
+    "nicegui>=3.18",
+    "openpyxl>=3.1.5",
+    "pdfplumber>=0.11.10",
+    "pgvector>=0.5",
+    "psycopg[binary]>=3.3",
+    "pydantic>=2.14",
+    "pydantic-settings>=2.16",
+    "pymupdf>=2.0",
+    "python-dateutil>=2.9.0.post0",
+    "python-docx>=1.2.0",
+    "python-multipart>=0.0.32",
+    "redis>=6.4.0",
+    "reportlab>=5.1.0",
+    "sqlalchemy>=2.1",
+    "structlog>=26.1.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+tenderpilot = "app.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "app"
+module-root = ""
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "playwright>=1.64.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1",
+    "pytest-cov>=7.1.0",
+    "pytest-playwright>=0.10.0",
+    "ruff>=0.17.3",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM"]
+ignore = ["S101", "B008", "S311", "E501", "B904", "S608", "SIM108"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+"scripts/**" = ["S"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = false
+files = ["app/core", "app/services", "app/schemas", "app/auth"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+markers = [
+  "e2e: browser end-to-end tests (need a running server and playwright browsers)",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/ui/*", "app/workers/beat.py"]
