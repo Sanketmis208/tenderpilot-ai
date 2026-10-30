@@ -166,6 +166,7 @@ def import_boq(db: Session, ctx: TenantContext, tender_id: uuid.UUID, document_v
     db.flush()
     for it in result["items"]:
         db.add(BoqItem(organization_id=ctx.organization_id, boq_import_id=imp.id, **it))
+    db.flush()
     audit.record(db, "boq.imported", ctx=ctx, subject_type="boq_import", subject_id=imp.id, data=result["summary"])
     return imp
 
