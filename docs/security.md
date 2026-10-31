@@ -10,18 +10,21 @@
 | AuthZ | Code-defined RBAC (6 roles); server-side checks in every service; no role escalation (cannot grant above own role, last owner protected); four-eyes rule on approvals; API-token scopes |
 | Tenancy | Org taken only from the verified context; foreign IDs 404; retrieval, MCP tools, copilot and downloads scoped and tested cross-tenant |
 | Uploads | Size limits and quotas, content sniffing (not client MIME), legacy/macro/JS-PDF rejection, ZIP traversal/absolute path/symlink/bomb/nesting protection |
+| Malware | ClamAV (clamd INSTREAM) when `TP_CLAMAV_HOST` is set: infected files rejected, scanner outage fails closed (`TP_CLAMAV_FAIL_CLOSED`); every upload's audit record states `clean` / `not_scanned`; `/readyz` reports the engine state. ClamAV runs in the Compose stack |
 | Downloads | Tenant-prefixed randomized keys; S3 presigned (5 min) or HMAC-signed expiring local URLs; download issuance audited |
 | SSRF | URL import: http(s) only, default ports, no credentials, every resolved IP checked (private, loopback, link-local, metadata, CGNAT), connection pinned to the vetted IP, manual redirect re-validation, size cap, optional allowlist |
 | Web | Security headers (nosniff, frame DENY, referrer policy, HSTS when secure, CSP on API), rate limiting (per IP, auth, copilot, tools), request IDs |
 | Secrets | Env/Secrets Manager only; integration credentials AES-256-GCM encrypted; log redaction of token/password/secret keys |
 | AI | Prompt-injection guard + untrusted-data tagging, verbatim citation verification, tool allowlist with strict schemas, mutations need approval/scope, per-run step/token/cost budgets, org AI quota |
 | Audit | Append-only `audit_events` for auth, membership, documents, reviews, approvals, exports, tool mutations |
-| Retention | Org deletion request → 30-day grace → purge job deletes rows (cascade) and stored objects |
+| Retention | Org deletion request → 30-day grace → purge job deletes rows (cascade) and stored objects; retrieval query logs keep only a SHA-256 of each query (raw text opt-in) and are purged after `TP_RETRIEVAL_LOG_RETENTION_DAYS` |
+| Agents | Bid preparation and tender analysis pause (`interrupt`) before consequential steps; resume re-checks the resuming user's current permissions; a paused run cannot act for a member who has since been removed |
 
 ## Known limitations / follow-ups
 
-* **No antivirus engine** — the upload scan is heuristic. Integrate ClamAV or a cloud malware-scanning service before
-  accepting untrusted public uploads.
+* **Antivirus is optional** — without `TP_CLAMAV_HOST` uploads are only checked heuristically (and are recorded as
+  `not_scanned`). Enable ClamAV (included in Compose; on AWS run it as a sidecar/service or use GuardDuty Malware
+  Protection for S3) before accepting untrusted public uploads.
 * **Row-level security not enabled** — isolation is enforced in the application layer only. Adding Postgres RLS with a
   per-transaction `app.org_id` setting and a non-superuser app role is recommended defense in depth.
 * **NiceGUI pages** rely on the session cookie for page access and run actions server-side over the websocket; the CSRF

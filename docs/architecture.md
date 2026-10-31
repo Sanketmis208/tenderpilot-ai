@@ -22,14 +22,17 @@ flowchart LR
     JOB --> TEX[Tender extraction<br/>rules + optional LLM]
     JOB --> WF[Tender-analysis workflow<br/>LangGraph + Postgres checkpoints]
     WF --> RULES[Deterministic rule engine]
+    JOB --> BP[Bid-preparation workflow<br/>LangGraph + approval interrupt]
   end
   UI <--> UIsrv
   SVC -->|enqueue after commit| REDIS[(Redis)]
   REDIS --> JOB
   DB[(PostgreSQL<br/>+ pgvector + FTS)]
   PIPE --> S3[(S3 / MinIO / local)]
+  SVC -->|INSTREAM| AV[ClamAV clamd]
   PIPE -.-> TEXTRACT[Amazon Textract]
-  TEX -.-> LLM[Claude API]
+  TEX -.-> LLM[LLM provider<br/>Claude or Groq]
+  BP -.-> LLM
   WF -.-> LLM
   COP -.-> LLM
 ```
@@ -48,7 +51,8 @@ flowchart LR
 
 ## Key flows
 
-**Document ingestion** — upload → content-type sniffing + size/quota checks + heuristic threat scan → (ZIP: safe
+**Document ingestion** — upload → content-type sniffing + size/quota checks + heuristic threat scan + ClamAV (when
+configured) → (ZIP: safe
 expansion) → object stored under `org/<org_id>/<scope>/<uuid>/<name>` → `documents` + immutable `document_versions` row →
 `document.process` job → pages (text + block bboxes, tables, OCR when enabled) → structure-aware chunks with
 embeddings (copied from an identical-hash version when available) → classification with confidence → facts
@@ -66,6 +70,20 @@ flowchart LR
   P -- reviewer resumes --> E
   E --> F[remediation<br/>idempotent tasks] --> G[finalize]
 ```
+
+**Bid preparation (Agent 4)** — `POST /workspaces/{id}/preparation` queues a `bid.generate` job running a second
+LangGraph workflow with its own checkpoints (thread `bidprep:<workspace>:<n>`):
+
+```mermaid
+flowchart LR
+  A[plan_structure] --> B[draft_documents<br/>evidence-grounded templates] --> C[executive_summary<br/>LLM + unsupported-claim check] --> D[attachments] --> E[risk_check] --> F{human_review}
+  F -- interrupt --> P((awaiting decision))
+  P -- submit / keep draft --> F
+  F --> G[finalize]
+```
+
+Drafts are tagged with the run id so a retried node never creates a second set of versions. Submitting for internal
+review runs under the deciding user's own permissions.
 
 **Corrigenda** — a corrigendum upload creates a pending amendment; once processed, fields and requirements are
 re-extracted, matched by requirement identity, changed requirements get new rows (old rows `is_current=false`,

@@ -35,7 +35,7 @@ make dev                      # terminal 2: http://localhost:8080
 ```
 
 Or with Docker: `docker compose up --build`, then `docker compose run --rm web tenderpilot seed`
-(stack: Postgres+pgvector, Redis, MinIO, Mailpit, web, worker, beat).
+(stack: Postgres+pgvector, Redis, MinIO, ClamAV, Mailpit, web, worker, beat).
 
 Demo sign-in (synthetic users, password = `TP_DEMO_PASSWORD`, default in `.env.example`):
 
@@ -53,8 +53,9 @@ Demo sign-in (synthetic users, password = `TP_DEMO_PASSWORD`, default in `.env.e
 * **demo** (default): when no LLM key is configured, extraction and the copilot use deterministic, *labelled*
   rule-based logic; embeddings use an offline lexical hashing embedder (`hashing-v1`, not semantic).
 * **integrated**: real providers are expected; a missing provider surfaces as a service-state error instead of a
-  silent fallback. Set `TP_ANTHROPIC_API_KEY` (Claude), `TP_EMBEDDING_PROVIDER=openai_compatible`, `TP_TEXTRACT_ENABLED`,
-  `TP_STORAGE_BACKEND=s3`, `TP_SMTP_HOST`.
+  silent fallback. Set `TP_LLM_PROVIDER` (`anthropic` with `TP_ANTHROPIC_API_KEY`, or `groq` with `TP_GROQ_API_KEY`),
+  `TP_EMBEDDING_PROVIDER=openai_compatible`, `TP_TEXTRACT_ENABLED`, `TP_STORAGE_BACKEND=s3`, `TP_SMTP_HOST`,
+  `TP_CLAMAV_HOST`.
 
 ## Common commands
 
@@ -64,6 +65,7 @@ make lint        # ruff
 make typecheck   # mypy
 make eval        # AI/extraction evaluation report → var/eval_report.json
 make e2e         # Playwright browser journey (server must be running)
+uv run tenderpilot reindex   # re-embed stale chunks after an embedding-model change
 ```
 
 ## Documentation

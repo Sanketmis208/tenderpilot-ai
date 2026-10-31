@@ -18,6 +18,10 @@
 8. **Bid workspace** — remediation tasks are created from gaps; assign owners and due dates, comment, track status.
    *Generate drafts* builds a technical response and capability summary only from your records, with `[Source: …]`
    citations and `[TO BE COMPLETED: …]` placeholders. Edit drafts (each save is a new version).
+   *Run agent* (Drafts tab) runs the bid-preparation agent: it plans the document structure, drafts from verified
+   evidence, adds an executive summary (AI-written only when every figure in it is found in the draft), lists the
+   attachment for each requirement (on record or missing), flags risks, and then **waits for you** to choose *Submit for
+   internal review* or *Keep as draft*.
 9. **BOQ** — analyse the attached workbook: duplicates, unit mismatches, missing quantities/rates, locked cells and
    formulas are flagged. Enter internal rates, save scenarios (exact decimal totals with markup and GST) and export a
    priced *copy* — formulas and locked cells are preserved.
@@ -26,4 +30,9 @@
 11. **Export** the package (technical response, compliance matrix, checklist, evidence and risk reports, supporting
     documents, SHA-256 manifest) and **submit it yourself on the official portal**.
 12. **Copilot** — ask "Can we qualify for this tender?", "Which document supports our ISO certification?", "Which
-    tenders close within seven days?". Proposed changes require your approval.
+    tenders close within seven days?". With an LLM provider configured the answer streams in as it is written. Proposed
+    changes require your approval. From any answer you can *Save as note*, *Create task* or *Draft response* into the
+    tender's bid workspace.
+13. **Settings → Document template & branding** (owners/admins) — letterhead, address, footer and brand colour for all
+    generated DOCX/XLSX/PDF files, plus up to three standard sections (e.g. quality policy) inserted verbatim into
+    technical responses.

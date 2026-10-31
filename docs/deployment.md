@@ -29,8 +29,12 @@ Textract) · GitHub OIDC deploy role scoped to one repository environment · CPU
 * Scale workers independently; expensive parsing/AI runs on the `documents` and `ai` queues.
 * Backups: RDS automated backups (14 days) + S3 versioning. Test restores regularly (`aws rds restore-db-instance-to-point-in-time`).
 * Stuck jobs are re-dispatched every 10 minutes by `beat` (`tp.scheduled.requeue_stuck`).
+* Antivirus: set `TP_CLAMAV_HOST`/`TP_CLAMAV_PORT` to a clamd service (e.g. an ECS service from the `clamav/clamav`
+  image on port 3310 inside the VPC). Uploads fail closed while it is unreachable. Not provisioned by the Terraform yet.
+* After changing the embedding provider/model run `tenderpilot reindex` (or the `tp.maintenance.reindex` Celery task);
+  only stale chunks are re-embedded and search ignores stale vectors meanwhile.
 
 ## External resources to provision
 
-AWS account + region with Textract · domain + ACM certificate · Anthropic API key (integrated mode) · embeddings
+AWS account + region with Textract · domain + ACM certificate · Anthropic or Groq API key (integrated mode) · clamd service · embeddings
 endpoint (optional) · SMTP provider (e.g. SES) · error tracking (Sentry or CloudWatch alarms; not wired in code yet).

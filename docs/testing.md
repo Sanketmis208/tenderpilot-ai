@@ -20,6 +20,14 @@ used, so tests need no paid services.
   detection → reviewer actions and workflow resume → remediation tasks (idempotent) → grounded drafts → four-eyes
   approval → export package (DOCX/XLSX/PDF/ZIP opened and hash-verified) → replacement certificate as a new version →
   re-run with history preserved → corrigendum diff and impact → cross-tenant denial.
-* **Security** — see `docs/security.md`.
+* **Bid-preparation agent** (`test_bid_preparation.py`) — interrupt, idempotent re-start, keep-draft and submit resumes,
+  cross-tenant denial, unsupported-claim detector.
+* **RAG operations** (`test_retrieval_ops.py`, `test_eval_retrieval.py`) — reranker modes, hashed query log and
+  retention purge, incremental reindex, retrieval quality gate (hit@1, MRR, recall@3) on an isolated corpus.
+* **MCP tools & collaboration** (`test_mcp_tools_and_collaboration.py`) — every read tool, mutation gating by
+  approval/scope and role, argument validation (no caller-supplied org ids), task locking/history/assignment rules.
+* **Streaming** (`tests/unit/test_llm_streaming.py`) — SSE reassembly of text, tool-call fragments and usage.
+* **Security** — see `docs/security.md`; also `tests/security/test_antivirus.py` (clamd protocol against a fake clamd,
+  EICAR rejection, fail-closed) and `tests/security/test_url_fetch.py` (DNS pinning, redirect-to-internal blocking).
 * **Browser e2e** (`tests/e2e`, marker `e2e`) — Playwright journey against a running server:
   `uv run playwright install chromium`, start the app (`make dev` + `make worker`, seeded), then `make e2e`.
