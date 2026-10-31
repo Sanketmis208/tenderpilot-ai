@@ -43,4 +43,5 @@ def purge_retrieval_logs(db: Session) -> int:
     from app.db.models import RetrievalQueryLog
 
     cutoff = utcnow() - timedelta(days=get_settings().retrieval_log_retention_days)
-    return db.execute(delete(RetrievalQueryLog).where(RetrievalQueryLog.created_at < cutoff)).rowcount or 0
+    res = db.execute(delete(RetrievalQueryLog).where(RetrievalQueryLog.created_at < cutoff))
+    return int(getattr(res, "rowcount", 0) or 0)

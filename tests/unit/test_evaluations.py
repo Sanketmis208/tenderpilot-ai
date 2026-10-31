@@ -12,3 +12,9 @@ def test_rule_extractor_quality_gate():
 
 def test_rule_engine_gate():
     assert eval_rules()["accuracy"] == 1.0
+
+
+def test_amendment_change_detection_gate():
+    from app.ai.evaluations.run import eval_amendments
+
+    assert eval_amendments()["accuracy"] == 1.0
