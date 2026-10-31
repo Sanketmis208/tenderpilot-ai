@@ -24,6 +24,11 @@ from app.ui.components.common import download_button, job_tracker, upload_box
 from app.ui.layouts.shell import run, shell
 from app.ui.themes.theme import empty_state, overall_badge
 
+
+def _tab_name(value) -> str:
+    return value if isinstance(value, str) else getattr(value, "props", {}).get("name", "overview")
+
+
 STATUS_COLOR = {"ready_for_review": "info", "processing": "warning", "shortlisted": "secondary", "bid_preparation": "primary", "won": "positive", "lost": "negative",
                 "awaiting_approval": "orange", "ready_for_external_submission": "positive"}
 
@@ -224,7 +229,8 @@ def tender_detail(request: Request, tender_id: str):
         if active:
             with progress_area:
                 ui.label("Processing in progress").classes("text-caption tp-muted")
-                job_tracker(active, on_done=lambda: ui.navigate.reload())
+                # Reload when processing finishes, keeping the tab the user is looking at.
+                job_tracker(active, on_done=lambda: ui.navigate.to(f"/tenders/{tid}?tab={_tab_name(tabs.value)}"))
         tab_q = request.query_params.get("tab", "overview")
         with ui.tabs().classes("w-full") as tabs:
             tab_objs = {k: ui.tab(k, label=v) for k, v in [("overview", "Overview"), ("documents", "Documents"), ("requirements", "Requirements"),
