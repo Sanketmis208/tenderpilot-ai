@@ -38,6 +38,7 @@ from app.services.bids.service import get_workspace
 from app.services.documents import service as documents
 from app.services.eligibility import service as elig
 from app.services.evidence.gather import load_company_evidence
+from app.services.organizations.org_service import branding
 
 PH = "[TO BE COMPLETED: {}]"
 STATUS_TEXT = {
@@ -129,6 +130,8 @@ def _technical_sections(c: dict[str, Any]) -> list[dict[str, Any]]:
     secs.append({"heading": "6. Financial Capability", "body": "\n".join(fin_lines) or PH.format("audited turnover figures"), "citations": [], "placeholders": []})
     prods = [f"• {f.values['name']} — model {f.values.get('model_number') or '—'} {_cite(f.label, f.page)}" for f in ev.products]
     secs.append({"heading": "7. Products Offered", "body": "\n".join(prods) or PH.format("offered products and models"), "citations": [], "placeholders": []})
+    for i, std in enumerate(((c["org"].settings or {}).get("template") or {}).get("standard_sections", []), start=1):
+        secs.append({"heading": f"7.{i} {std['heading']}", "body": std["body"], "citations": [], "placeholders": [], "origin": "org_template"})
     secs.append({"heading": "8. Declarations", "body": "\n".join([
         PH.format("declaration of not being blacklisted/debarred, signed on letterhead"),
         PH.format("signature, seal and date of authorised signatory"),
@@ -177,12 +180,19 @@ def render_docx(draft: BidDraft, tender: Tender, org: Organization) -> bytes:
     import docx
     from docx.shared import Pt, RGBColor
 
+    b = branding(org)
+    color = RGBColor.from_string(b["primary_color"].lstrip("#").upper())
     doc = docx.Document()
     style = doc.styles["Normal"]
     style.font.name, style.font.size = "Calibri", Pt(10.5)
-    brand = (org.settings or {}).get("letterhead_name") or org.name
     hdr = doc.sections[0].header.paragraphs[0]
-    hdr.text = f"{brand} — {draft.title} (v{draft.version_no})"
+    r = hdr.add_run(b["letterhead_name"])
+    r.bold, r.font.color.rgb = True, color
+    hdr.add_run(f"  ·  {draft.title} (v{draft.version_no})" + (f"\n{b['address_line']}" if b["address_line"] else "")).font.size = Pt(8.5)
+    if b["footer_text"]:
+        doc.sections[0].footer.paragraphs[0].add_run(b["footer_text"]).font.size = Pt(8)
+    for st in ("Title", "Heading 1"):
+        doc.styles[st].font.color.rgb = color
     doc.add_heading(draft.title, 0)
     doc.add_paragraph(f"Tender: {tender.title}\nReference: {tender.reference_number or '—'}\nStatus: {draft.status.replace('_', ' ').upper()}")
     for s in draft.sections:
@@ -204,20 +214,21 @@ def render_docx(draft: BidDraft, tender: Tender, org: Organization) -> bytes:
     return buf.getvalue()
 
 
-def render_compliance_xlsx(rep: dict[str, Any], tender: Tender) -> bytes:
+def render_compliance_xlsx(rep: dict[str, Any], tender: Tender, org: Organization | None = None) -> bytes:
     import openpyxl
     from openpyxl.styles import Alignment, Font, PatternFill
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Compliance Matrix"
-    ws.append([f"Compliance matrix — {tender.title}"])
+    b = branding(org) if org else {"letterhead_name": "", "primary_color": "#1F2A44"}
+    ws.append([f"{b['letterhead_name']} — compliance matrix — {tender.title}" if b["letterhead_name"] else f"Compliance matrix — {tender.title}"])
     ws.append([f"Reference: {tender.reference_number or '—'}  |  Assessment run #{rep['assessment'].run_no}  |  Generated {datetime.now(IST):%d %b %Y %H:%M} IST"])
     ws.append([])
     headers = ["Code", "Type", "Requirement", "Mandatory", "Tender clause (verbatim)", "Tender page", "Status", "Machine status", "Explanation", "Evidence", "Gaps", "Reviewer note"]
     ws.append(headers)
     for c in ws[4]:
-        c.font, c.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="1F2A44")
+        c.font, c.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor=b["primary_color"].lstrip("#"))
     fills = {"verified_satisfied": "D5F5E3", "verified_not_satisfied": "FADBD8", "insufficient_evidence": "FCF3CF", "conflicting_evidence": "F5CBA7", "needs_human_review": "D6EAF8"}
     for it in rep["items"]:
         d, r = it["decision"], it["requirement"]
@@ -236,14 +247,14 @@ def render_compliance_xlsx(rep: dict[str, Any], tender: Tender) -> bytes:
     return buf.getvalue()
 
 
-def render_checklist_xlsx(rep: dict[str, Any], tender: Tender, doc_rows: list[tuple]) -> bytes:
+def render_checklist_xlsx(rep: dict[str, Any], tender: Tender, doc_rows: list[tuple], org: Organization | None = None) -> bytes:
     import openpyxl
     from openpyxl.styles import Font
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Document Checklist"
-    ws.append(["Supporting-document checklist", tender.title])
+    ws.append(["Supporting-document checklist", tender.title, branding(org)["letterhead_name"] if org else ""])
     ws.append(["Requirement", "Required document", "Status", "File in package"])
     for c in ws[2]:
         c.font = Font(bold=True)
@@ -258,7 +269,7 @@ def render_checklist_xlsx(rep: dict[str, Any], tender: Tender, doc_rows: list[tu
     return buf.getvalue()
 
 
-def render_pdf_report(title: str, rep: dict[str, Any], tender: Tender, *, risk: bool = False) -> bytes:
+def render_pdf_report(title: str, rep: dict[str, Any], tender: Tender, *, risk: bool = False, org: Organization | None = None) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
@@ -268,7 +279,12 @@ def render_pdf_report(title: str, rep: dict[str, Any], tender: Tender, *, risk: 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, title=title, leftMargin=36, rightMargin=36, topMargin=40, bottomMargin=40)
     a = rep["assessment"]
-    story = [Paragraph(title, styles["Title"]), Paragraph(f"{tender.title} — {tender.reference_number or ''}", styles["Normal"]),
+    b = branding(org) if org else {"letterhead_name": "", "address_line": "", "footer_text": "", "primary_color": "#1F2A44"}
+    brand = colors.HexColor(b["primary_color"])
+    from xml.sax.saxutils import escape
+
+    story = [Paragraph(f'<font color="{b["primary_color"]}"><b>{escape(b["letterhead_name"])}</b></font> {escape(b["address_line"])}', styles["Normal"])] if b["letterhead_name"] else []
+    story += [Paragraph(title, styles["Title"]), Paragraph(f"{tender.title} — {tender.reference_number or ''}", styles["Normal"]),
              Paragraph(f"Assessment run #{a.run_no} · overall: <b>{(a.overall_status or '').replace('_', ' ')}</b> · readiness {a.readiness_score}/100 "
                        f"(explanatory; mandatory conditions govern)", styles["Normal"]), Spacer(1, 10)]
     esc = lambda s: (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")  # noqa: E731
@@ -284,10 +300,12 @@ def render_pdf_report(title: str, rep: dict[str, Any], tender: Tender, *, risk: 
             rows.append([r.code, d.status.replace("_", " "), Paragraph(f"<b>{esc(r.title)}</b><br/>Clause (p.{r.source_page}): <i>{esc(r.source_text[:300])}</i><br/>{esc(d.explanation)}<br/>{evs}", styles["BodyText"])])
         widths = [40, 90, 390]
     tbl = Table(rows, colWidths=widths, repeatRows=1)
-    tbl.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F2A44")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+    tbl.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), brand), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                              ("VALIGN", (0, 0), (-1, -1), "TOP"), ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#C8D0DC")),
                              ("FONTSIZE", (0, 0), (-1, -1), 8)]))
     story += [tbl, Spacer(1, 12), Paragraph("Generated by TenderPilot AI. Document-stated facts are not externally verified; this is not legal advice.", styles["Italic"])]
+    if b["footer_text"]:
+        story.append(Paragraph(escape(b["footer_text"]), styles["Italic"]))
     doc.build(story)
     return buf.getvalue()
 
@@ -323,10 +341,10 @@ def export_package(db: Session, ctx: TenantContext, workspace_id: uuid.UUID) -> 
     for kind, fmt, name, data, draft in [
         ("technical_response", "docx", f"technical_bid_response_v{current['technical_response'].version_no}.docx", render_docx(current["technical_response"], tender, org), current["technical_response"]),
         ("capability_summary", "docx", "company_capability_summary.docx", render_docx(current["capability_summary"], tender, org) if "capability_summary" in current else b"", current.get("capability_summary")),
-        ("compliance_matrix", "xlsx", "eligibility_compliance_matrix.xlsx", render_compliance_xlsx(rep, tender), None),
-        ("document_checklist", "xlsx", "supporting_document_checklist.xlsx", render_checklist_xlsx(rep, tender, []), None),
-        ("evidence_report", "pdf", "requirement_to_evidence_report.pdf", render_pdf_report("Requirement-to-Evidence Report", rep, tender), None),
-        ("risk_report", "pdf", "internal_risk_report.pdf", render_pdf_report("Internal Risk Report (confidential)", rep, tender, risk=True), None),
+        ("compliance_matrix", "xlsx", "eligibility_compliance_matrix.xlsx", render_compliance_xlsx(rep, tender, org), None),
+        ("document_checklist", "xlsx", "supporting_document_checklist.xlsx", render_checklist_xlsx(rep, tender, [], org), None),
+        ("evidence_report", "pdf", "requirement_to_evidence_report.pdf", render_pdf_report("Requirement-to-Evidence Report", rep, tender, org=org), None),
+        ("risk_report", "pdf", "internal_risk_report.pdf", render_pdf_report("Internal Risk Report (confidential)", rep, tender, risk=True, org=org), None),
     ]:
         if not data:
             continue

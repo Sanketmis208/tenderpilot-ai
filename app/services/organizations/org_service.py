@@ -238,6 +238,42 @@ def update_org_settings(db: Session, ctx: TenantContext, *, name: str | None = N
     return org
 
 
+HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+DEFAULT_BRAND_COLOR = "#1F2A44"
+
+
+def branding(org: Organization) -> dict:
+    """Organization branding for generated documents, with safe defaults."""
+    b = (org.settings or {}).get("branding") or {}
+    return {"letterhead_name": b.get("letterhead_name") or (org.settings or {}).get("letterhead_name") or org.name,
+            "address_line": b.get("address_line") or "", "footer_text": b.get("footer_text") or "",
+            "primary_color": b.get("primary_color") if HEX_COLOR.match(b.get("primary_color") or "") else DEFAULT_BRAND_COLOR}
+
+
+def update_document_template(db: Session, ctx: TenantContext, *, branding_in: dict, standard_sections: list[dict]) -> Organization:
+    """Branding and organization-authored standard sections (e.g. quality policy) for generated bid documents.
+    Standard sections are the organization's own approved text; they are inserted verbatim and labelled as such."""
+    ctx.require(Perm.ORG_MANAGE)
+    org = db.get(Organization, ctx.organization_id)
+    if not org:
+        raise NotFound("Organization not found.")
+    color = (branding_in.get("primary_color") or DEFAULT_BRAND_COLOR).strip()
+    if not HEX_COLOR.match(color):
+        raise ValidationFailed("Brand colour must be a hex value such as #1F2A44.")
+    clean = {"letterhead_name": (branding_in.get("letterhead_name") or "").strip()[:200], "address_line": (branding_in.get("address_line") or "").strip()[:300],
+             "footer_text": (branding_in.get("footer_text") or "").strip()[:300], "primary_color": color}
+    secs = []
+    for sec in standard_sections[:10]:
+        h, body = (sec.get("heading") or "").strip()[:200], (sec.get("body") or "").strip()[:8000]
+        if h and body:
+            secs.append({"heading": h, "body": body})
+    org.settings = {**(org.settings or {}), "branding": clean, "letterhead_name": clean["letterhead_name"] or (org.settings or {}).get("letterhead_name"),
+                    "template": {"standard_sections": secs}}
+    audit.record(db, "organization.document_template_updated", ctx=ctx, subject_type="organization", subject_id=org.id,
+                 data={"standard_sections": len(secs), "primary_color": color})
+    return org
+
+
 def set_suspension(db: Session, actor: User, org_id: uuid.UUID, suspended: bool, reason: str | None = None) -> Organization:
     if not actor.is_platform_admin:
         raise PermissionDenied("Platform administrator access required.")

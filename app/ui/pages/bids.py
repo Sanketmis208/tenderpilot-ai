@@ -439,6 +439,7 @@ def settings_page(request: Request):
                                      "flag_only": "Only flag affected items"}, value=osettings.get("amendment_policy", "reopen_approvals_on_mandatory_change"), label="Corrigendum policy").props("outlined dense").classes("w-full")
                     if pc.can(Perm.ORG_MANAGE):
                         ui.button("Save", on_click=lambda: run(lambda db: org_service.update_org_settings(db, pc.ctx, name=nm.value, settings={"letterhead_name": lh.value, "amendment_policy": pol.value}), success="Saved")).props("unelevated color=primary")
+                _template_card(pc, osettings)
                 with ui.card().classes("tp-card w-full q-pa-md"):
                     ui.label("Notifications").classes("tp-h2")
                     for kind, label in [("deadline", "Deadline reminders"), ("document_expiry", "Document expiry warnings"), ("task_assigned", "Task assignments"),
@@ -503,3 +504,32 @@ def settings_page(request: Request):
 
 
 _ = (Decimal, format_inr_short)
+
+
+def _template_card(pc, osettings):
+    """Branding + organization-authored standard sections used in generated bid documents."""
+    b = osettings.get("branding") or {}
+    secs = list(((osettings.get("template") or {}).get("standard_sections")) or [])
+    editable = pc.can(Perm.ORG_MANAGE)
+    with ui.card().classes("tp-card w-full q-pa-md"):
+        ui.label("Document template & branding").classes("tp-h2")
+        ui.label("Applied to generated DOCX, XLSX and PDF files. Standard sections are your own approved text (e.g. quality policy, "
+                 "after-sales support) and are inserted verbatim into technical responses, labelled as organization template text.").classes("text-caption tp-muted")
+        lh = ui.input("Letterhead name", value=b.get("letterhead_name") or osettings.get("letterhead_name", "")).props("outlined dense").classes("w-full")
+        addr = ui.input("Address line", value=b.get("address_line", "")).props("outlined dense").classes("w-full")
+        foot = ui.input("Footer text", value=b.get("footer_text", "")).props("outlined dense").classes("w-full")
+        color = ui.color_input("Brand colour", value=b.get("primary_color", "#1F2A44")).props("outlined dense").classes("w-full")
+        editors = []
+        for i in range(3):
+            cur = secs[i] if i < len(secs) else {}
+            with ui.expansion(f"Standard section {i + 1}" + (f": {cur['heading']}" if cur.get("heading") else "")).classes("w-full"):
+                h = ui.input("Heading", value=cur.get("heading", "")).props("outlined dense").classes("w-full")
+                body = ui.textarea("Text", value=cur.get("body", "")).props("outlined autogrow").classes("w-full")
+                editors.append((h, body))
+        for el in [lh, addr, foot, color] + [e for pair in editors for e in pair]:
+            el.set_enabled(editable)
+        if editable:
+            ui.button("Save template", on_click=lambda: run(lambda db: org_service.update_document_template(
+                db, pc.ctx, branding_in={"letterhead_name": lh.value, "address_line": addr.value, "footer_text": foot.value, "primary_color": color.value},
+                standard_sections=[{"heading": h.value, "body": bd.value} for h, bd in editors]), success="Template saved")).props("unelevated color=primary")
+
