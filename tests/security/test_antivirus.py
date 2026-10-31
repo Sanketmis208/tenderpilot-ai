@@ -94,7 +94,13 @@ def test_upload_enforces_scanner(seeded, db, clamd, monkeypatch):
     res = documents.upload(db, ctx, b"Plain clean notes about a tender\n", "clean-notes.txt", process=False)
     assert res and clamd.scanned == 2
 
-    clamd.close()
+    # Outage: point the scanner at a port nothing listens on (closing the fake's socket is not reliable on Linux
+    # while its accept() thread is blocked).
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    dead = s.getsockname()[1]
+    s.close()
+    monkeypatch.setattr(documents, "get_scanner", lambda: antivirus.ClamdScanner("127.0.0.1", dead, timeout=1))
     with pytest.raises(ServiceUnavailable):
         documents.upload(db, ctx, b"Another clean file\n", "another.txt", process=False)
     db.rollback()
