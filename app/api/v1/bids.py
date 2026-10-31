@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.ai.workflows import bid_preparation
 from app.auth.context import TenantContext
 from app.auth.deps import ctx_dep
 from app.db.session import get_db
@@ -65,6 +66,29 @@ def comments(workspace_id: uuid.UUID, task_id: uuid.UUID | None = None, ctx: Ten
 @router.post("/workspaces/{workspace_id}/drafts/generate", response_model=list[s.DraftOut], status_code=201)
 def generate(workspace_id: uuid.UUID, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
     return generation.generate_drafts(db, ctx, workspace_id)
+
+
+def _run_out(r) -> dict:
+    return {"id": str(r.id), "status": r.status, "mode": r.mode, "steps": r.steps, "history": r.history, "result": r.result,
+            "interrupt": r.interrupt_payload, "error": r.error, "created_at": r.created_at, "finished_at": r.finished_at}
+
+
+@router.post("/workspaces/{workspace_id}/preparation", status_code=202)
+def start_preparation(workspace_id: uuid.UUID, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    """Start the bid preparation agent (LangGraph). It pauses for a human decision before submitting for review."""
+    run, job = bid_preparation.start(db, ctx, workspace_id)
+    return {"run": _run_out(run), "job_id": str(job.id) if job else None}
+
+
+@router.get("/workspaces/{workspace_id}/preparation")
+def get_preparation(workspace_id: uuid.UUID, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    run = bid_preparation.latest_run(db, ctx, workspace_id)
+    return _run_out(run) if run else None
+
+
+@router.post("/preparation/{run_id}/decision")
+def decide_preparation(run_id: uuid.UUID, body: s.PreparationDecisionIn, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    return _run_out(bid_preparation.resume(db, ctx, run_id, body.decision, body.note))
 
 
 @router.get("/workspaces/{workspace_id}/drafts", response_model=list[s.DraftOut])

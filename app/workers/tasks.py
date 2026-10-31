@@ -18,6 +18,7 @@ log = get_logger(__name__)
 
 def _load_handlers() -> None:
     # Registers @handler functions (import side effect, kept explicit).
+    import app.ai.workflows.bid_preparation  # noqa: F401
     import app.services.documents.pipeline  # noqa: F401
     import app.services.eligibility.service  # noqa: F401
     import app.services.tenders.pipeline  # noqa: F401

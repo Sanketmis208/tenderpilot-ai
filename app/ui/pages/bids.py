@@ -9,6 +9,7 @@ from fastapi import Request
 from nicegui import ui
 from sqlalchemy import select
 
+from app.ai.workflows import bid_preparation
 from app.auth.deps import parse_uuid
 from app.auth.permissions import ROLE_LABELS, Perm
 from app.core.config import get_settings
@@ -188,6 +189,62 @@ def comments_box(pc, wid, task_id):
             ui.button(icon="send", on_click=lambda: (run(lambda db: bids.add_comment(db, pc.ctx, wid, inp.value or "", task_id=task_id), refresh=body.refresh), inp.set_value(""))).props("flat dense")
 
 
+SEV_COLOR = {"high": "negative", "medium": "warning", "low": "grey-7"}
+
+
+def _agent_panel(pc, wid, ws_status, on_drafts_changed):
+    """Bid preparation agent (LangGraph): progress, suggested attachments, risk findings and the approval gate."""
+    @ui.refreshable
+    def panel():
+        with session_scope() as db:
+            r = bid_preparation.latest_run(db, pc.ctx, wid)
+            info = (r.id, r.status, r.mode, r.history, r.result or {}, r.interrupt_payload, r.error) if r else None
+        with ui.card().classes("tp-card w-full q-pa-md"):
+            with ui.row().classes("w-full items-center justify-between"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Bid preparation agent").classes("tp-h2")
+                    ui.label("Plans the document structure, drafts from verified evidence, checks for unsupported claims, suggests attachments "
+                             "and stops for your decision before anything is submitted for review.").classes("text-caption tp-muted")
+                if pc.can(Perm.BIDS_WRITE) and ws_status in ("draft", "changes_requested") and (not info or info[1] not in ("running", "interrupted")):
+                    ui.button("Run agent", icon="smart_toy", on_click=lambda: run(lambda db: bid_preparation.start(db, pc.ctx, wid), success="Agent started",
+                                                                                     refresh=panel.refresh)).props("unelevated color=secondary")
+            if not info:
+                return
+            rid, status, mode, history, result, intr, err = info
+            with ui.row().classes("items-center gap-2"):
+                ui.badge(status, color={"completed": "positive", "interrupted": "warning", "failed": "negative"}.get(status, "info"))
+                ui.label(f"{mode} mode · " + " → ".join(h["node"].replace("_", " ") for h in history)).classes("text-caption tp-muted")
+            if err:
+                ui.label(err[:300]).classes("text-negative text-caption")
+            summ = result.get("summary") or {}
+            if summ:
+                ui.label(("AI summary (claims verified against the draft)" if summ.get("mode") == "llm" else "Summary (rule-based)") + ": " + summ.get("text", "")).classes("text-body2")
+            for f in result.get("findings") or []:
+                ui.label(f"● {f['text']}").classes(f"text-caption text-{SEV_COLOR.get(f['severity'], 'grey-7')}")
+            att = result.get("attachments") or []
+            if att:
+                with ui.expansion(f"Suggested attachments ({sum(1 for a in att if a['status'] == 'on_record')} on record, "
+                                  f"{sum(1 for a in att if a['status'] == 'missing')} missing)").classes("w-full"):
+                    for a in att:
+                        if a.get("document_version_id"):
+                            ui.link(f"{a['requirement']}: {a['attach']}" + (f" p.{a['page']}" if a.get("page") else ""),
+                                    f"/viewer/{a['document_version_id']}?page={a.get('page') or 1}").classes("tp-link text-caption")
+                        else:
+                            ui.label(f"{a['requirement']}: {a['attach']}").classes("text-caption " + ("text-negative" if a["status"] == "missing" else ""))
+            if status == "interrupted" and intr and pc.can(Perm.BIDS_WRITE):
+                with ui.row().classes("items-center gap-2 q-mt-sm"):
+                    ui.label(intr.get("question", "Decision needed")).classes("text-weight-medium")
+
+                    def decide(d):
+                        if run(lambda db: bid_preparation.resume(db, pc.ctx, rid, d), success="Decision recorded"):
+                            ui.navigate.reload() if d == "submit" else (panel.refresh(), on_drafts_changed())
+                    ui.button("Submit for internal review", on_click=lambda: decide("submit")).props("unelevated color=secondary")
+                    ui.button("Keep as draft", on_click=lambda: decide("keep_draft")).props("outline color=primary")
+            if status == "running":
+                ui.timer(2.0, lambda: (panel.refresh(), on_drafts_changed()), once=True)
+    panel()
+
+
 def _drafts(pc, wid, ws_status):
     @ui.refreshable
     def body():
@@ -208,13 +265,14 @@ def _drafts(pc, wid, ws_status):
                         ui.badge(gen, color="grey-7").props("outline")
                 editors = []
                 for s in sections:
-                    ui.label(s["heading"]).classes("text-subtitle2 q-mt-sm")
+                    ui.label(s["heading"] + ("  · AI-written, claims checked" if s.get("ai_generated") else "")).classes("text-subtitle2 q-mt-sm")
                     ta = ui.textarea(value=s["body"]).props("outlined autogrow").classes("w-full")
                     ta.set_enabled(pc.can(Perm.BIDS_WRITE) and ws_status in ("draft", "changes_requested"))
                     editors.append((s, ta))
                 if pc.can(Perm.BIDS_WRITE) and ws_status in ("draft", "changes_requested"):
                     ui.button("Save as new version", icon="save", on_click=lambda did=did, editors=editors, lv=lv: run(
                         lambda db: bids.edit_draft(db, pc.ctx, did, [{**s, "body": ta.value} for s, ta in editors], lv), success="Saved new version", refresh=body.refresh)).props("dense unelevated color=primary")
+    _agent_panel(pc, wid, ws_status, lambda: body.refresh())
     body()
 
 

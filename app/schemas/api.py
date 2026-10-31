@@ -418,6 +418,11 @@ class ApprovalIn(BaseModel):
     note: str | None = None
 
 
+class PreparationDecisionIn(BaseModel):
+    decision: str = Field(pattern="^(submit|keep_draft)$")
+    note: str | None = Field(None, max_length=2000)
+
+
 class ArtifactOut(ORM):
     id: uuid.UUID
     kind: str
