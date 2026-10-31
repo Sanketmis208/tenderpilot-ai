@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     clamav_timeout_seconds: float = 30.0
     clamav_fail_closed: bool = True  # reject uploads when a configured scanner cannot be reached
 
+    # Retrieval
+    rerank_mode: str = "overlap"  # overlap (lexical term-overlap rerank) | none (pure RRF)
+    retrieval_log_query_text: bool = False  # False = store only a SHA-256 of each query
+    retrieval_log_retention_days: int = 90
+
     textract_enabled: bool = False
     ocr_min_text_chars_per_page: int = 40
 

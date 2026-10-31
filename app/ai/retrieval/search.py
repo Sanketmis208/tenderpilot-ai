@@ -6,9 +6,12 @@ no code path that searches across organizations.
 
 from __future__ import annotations
 
+import hashlib
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -16,6 +19,9 @@ from sqlalchemy.orm import Session
 from app.ai.retrieval.embeddings import get_embedder
 from app.auth.context import TenantContext
 from app.auth.permissions import Perm
+from app.core.config import get_settings
+from app.db.base import utcnow
+from app.db.models import RetrievalQueryLog
 
 RRF_K = 60
 
@@ -72,10 +78,55 @@ FROM document_chunks c JOIN documents d ON d.id = c.document_id
 """
 
 
+class Reranker(Protocol):
+    name: str
+
+    def score(self, query: str, hits: list[Hit]) -> None: ...
+
+
+def _terms(s: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]{3,}", s.lower()))
+
+
+class RRFOnly:
+    """Pure reciprocal-rank fusion of the lexical and vector lists."""
+
+    name = "none"
+
+    def score(self, query: str, hits: list[Hit]) -> None:
+        q = _terms(query)
+        for h in hits:
+            h.signals["term_overlap"] = round(len(q & _terms(h.text)) / max(len(q), 1), 2)
+            h.score = h.signals["rrf"] * 30
+
+
+class OverlapReranker(RRFOnly):
+    """RRF plus a lightweight query-term-overlap rerank (default; no model call, deterministic)."""
+
+    name = "overlap"
+
+    def score(self, query: str, hits: list[Hit]) -> None:
+        super().score(query, hits)
+        for h in hits:
+            h.score += h.signals["term_overlap"]
+
+
+RERANKERS: dict[str, type[RRFOnly]] = {"none": RRFOnly, "overlap": OverlapReranker}
+
+
+def get_reranker() -> Reranker:
+    return RERANKERS.get(get_settings().rerank_mode, OverlapReranker)()
+
+
+def query_digest(query: str) -> str:
+    return hashlib.sha256(" ".join(query.lower().split()).encode()).hexdigest()
+
+
 def hybrid_search(
-    db: Session, ctx: TenantContext, query: str, *, filters: SearchFilters | None = None, limit: int = 8
+    db: Session, ctx: TenantContext, query: str, *, filters: SearchFilters | None = None, limit: int = 8, log: bool = True
 ) -> list[Hit]:
     ctx.require(Perm.DOCUMENTS_READ)
+    started = time.monotonic()
     f = filters or SearchFilters()
     query = query.strip()[:1000]
     if not query:
@@ -126,17 +177,25 @@ def hybrid_search(
     for rank, row in enumerate(vector):
         h = hits.setdefault(row[0], Hit(*row[:9]))
         h.vector_rank, h.vector_similarity = rank, float(row[9])
-    qterms = set(re.findall(r"[a-z0-9]{3,}", query.lower()))
     for h in hits.values():
         rrf = 0.0
         if h.lexical_rank is not None:
             rrf += 1.0 / (RRF_K + h.lexical_rank)
         if h.vector_rank is not None:
             rrf += 1.0 / (RRF_K + h.vector_rank)
-        overlap = len(qterms & set(re.findall(r"[a-z0-9]{3,}", h.text.lower()))) / max(len(qterms), 1)
-        h.score = rrf * 30 + overlap  # lightweight lexical-overlap rerank
-        h.signals = {"rrf": round(rrf, 5), "term_overlap": round(overlap, 2), "vector_similarity": round(h.vector_similarity, 3)}
-    return sorted(hits.values(), key=lambda h: h.score, reverse=True)[:limit]
+        h.signals = {"rrf": round(rrf, 5), "vector_similarity": round(h.vector_similarity, 3)}
+    reranker = get_reranker()
+    reranker.score(query, list(hits.values()))
+    out = sorted(hits.values(), key=lambda h: h.score, reverse=True)[:limit]
+    if log:
+        s = get_settings()
+        db.add(RetrievalQueryLog(
+            organization_id=ctx.organization_id, user_id=ctx.user_id if ctx.user_id.int else None, channel=ctx.channel[:24],
+            query_sha256=query_digest(query), query_text=query if s.retrieval_log_query_text else None,
+            filters={k: (str(v) if isinstance(v, uuid.UUID) else v) for k, v in {"scope": f.scope, "categories": f.categories, "tender_id": f.tender_id}.items() if v},
+            result_count=len(out), top_score=round(out[0].score, 4) if out else 0.0, confidence=retrieval_confidence(out), reranker=reranker.name,
+            latency_ms=int((time.monotonic() - started) * 1000), created_at=utcnow()))
+    return out
 
 
 def retrieval_confidence(hits: list[Hit]) -> float:

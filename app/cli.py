@@ -19,6 +19,9 @@ def main() -> None:
     tok.add_argument("--write", action="store_true")
     sub.add_parser("mcp-stdio", help="Run the MCP server over stdio (auth via TENDERPILOT_API_TOKEN)")
     sub.add_parser("eval", help="Run the AI/extraction evaluation suite")
+    rx = sub.add_parser("reindex", help="Re-embed chunks whose vectors are missing or from another embedding model")
+    rx.add_argument("--org", help="Organization name (substring); default: all organizations")
+    rx.add_argument("--full", action="store_true", help="Re-embed every chunk, not only stale ones")
     a = p.parse_args()
     if a.cmd == "seed":
         from app.db.session import session_scope
@@ -71,6 +74,19 @@ def main() -> None:
         from app.ai.evaluations.run import main as run_eval
 
         run_eval()
+    elif a.cmd == "reindex":
+        from sqlalchemy import select
+
+        from app.ai.retrieval.reindex import reindex, stale_count
+        from app.db.models import Organization
+        from app.db.session import session_scope
+
+        with session_scope() as db:
+            org = db.scalar(select(Organization).where(Organization.name.ilike(f"%{a.org}%"))) if a.org else None
+            if a.org and not org:
+                raise SystemExit("No such organization")
+            print("stale chunks:", stale_count(db, org.id if org else None))
+            print(reindex(db, org.id if org else None, full=a.full))
 
 
 if __name__ == "__main__":

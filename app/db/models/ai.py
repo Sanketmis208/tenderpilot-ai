@@ -100,3 +100,22 @@ class IntegrationConnection(IdMixin, TimestampMixin, TenantMixin, Base):
     last_sync_at: Mapped[datetime | None]
     last_error: Mapped[str | None] = mapped_column(Text)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class RetrievalQueryLog(IdMixin, TenantMixin, Base):
+    """Privacy-preserving retrieval log: the query is stored as a SHA-256 digest (raw text only when
+    TP_RETRIEVAL_LOG_QUERY_TEXT=true) and rows are purged after TP_RETRIEVAL_LOG_RETENTION_DAYS."""
+
+    __tablename__ = "retrieval_query_logs"
+
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    channel: Mapped[str] = mapped_column(String(24))
+    query_sha256: Mapped[str] = mapped_column(String(64), index=True)
+    query_text: Mapped[str | None] = mapped_column(Text)
+    filters: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    result_count: Mapped[int] = mapped_column(default=0)
+    top_score: Mapped[float] = mapped_column(Float, default=0.0)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    reranker: Mapped[str] = mapped_column(String(24))
+    latency_ms: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(index=True)

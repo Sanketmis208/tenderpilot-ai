@@ -6,6 +6,7 @@ from app.db.models.ai import (
     CopilotConversation,
     CopilotMessage,
     IntegrationConnection,
+    RetrievalQueryLog,
     ToolExecutionLog,
 )
 from app.db.models.bids import (

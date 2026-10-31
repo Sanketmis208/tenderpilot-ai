@@ -33,3 +33,14 @@ def purge_due_organizations(db: Session) -> int:
         db.delete(org)  # ON DELETE CASCADE removes all tenant rows
         n += 1
     return n
+
+
+def purge_retrieval_logs(db: Session) -> int:
+    """Retrieval query logs are kept for TP_RETRIEVAL_LOG_RETENTION_DAYS (privacy: data minimisation)."""
+    from sqlalchemy import delete
+
+    from app.core.config import get_settings
+    from app.db.models import RetrievalQueryLog
+
+    cutoff = utcnow() - timedelta(days=get_settings().retrieval_log_retention_days)
+    return db.execute(delete(RetrievalQueryLog).where(RetrievalQueryLog.created_at < cutoff)).rowcount or 0

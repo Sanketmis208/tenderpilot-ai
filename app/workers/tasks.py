@@ -64,10 +64,21 @@ def retry_emails() -> int:
 
 @celery_app.task(name="tp.scheduled.purge_orgs")
 def purge_orgs() -> int:
-    from app.services.organizations.retention import purge_due_organizations
+    from app.services.organizations.retention import purge_due_organizations, purge_retrieval_logs
 
     with session_scope() as db:
-        return purge_due_organizations(db)
+        n = purge_due_organizations(db)
+        log.info("retention.retrieval_logs_purged", rows=purge_retrieval_logs(db))
+        return n
+
+
+@celery_app.task(name="tp.maintenance.reindex", queue="ai")
+def reindex_embeddings(org_id: str | None = None, full: bool = False) -> dict:
+    """Incremental re-embedding after an embedding-model change (`tenderpilot reindex` runs the same code)."""
+    from app.ai.retrieval.reindex import reindex
+
+    with session_scope() as db:
+        return reindex(db, uuid.UUID(org_id) if org_id else None, full=full)
 
 
 @celery_app.task(name="tp.scheduled.requeue_stuck")

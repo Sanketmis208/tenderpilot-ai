@@ -24,10 +24,15 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def include_object(obj, name, type_, reflected, compare_to):
+    # LangGraph's checkpoint tables are managed by PostgresSaver.setup(), not by Alembic.
+    return not (type_ == "table" and name and name.startswith("checkpoint"))
+
+
 def run_migrations_online() -> None:
     connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True, include_object=include_object)
         with context.begin_transaction():
             context.run_migrations()
 

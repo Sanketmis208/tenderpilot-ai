@@ -121,7 +121,7 @@ def compute_decisions(db: Session, a: EligibilityAssessment, progress: Callable[
         # Retrieval evidence: related passages for reviewer context (never used as proof by rules).
         if res.status in (DecisionStatus.NEEDS_HUMAN_REVIEW, DecisionStatus.INSUFFICIENT_EVIDENCE) or not res.evidence:
             seen_docs = {lk.document_id for lk in links}
-            for h in hybrid_search(db, ctx, f"{r.title} {r.source_text[:300]}", filters=SearchFilters(scope="company"), limit=3):
+            for h in hybrid_search(db, ctx, f"{r.title} {r.source_text[:300]}", filters=SearchFilters(scope="company"), limit=3, log=False):
                 if h.document_id in seen_docs or h.signals.get("term_overlap", 0) < 0.25:
                     continue
                 db.add(RequirementEvidenceLink(
