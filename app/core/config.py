@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     max_zip_members: int = 200
     max_zip_uncompressed_bytes: int = 300 * 1024 * 1024
 
+    # Antivirus: clamd (ClamAV daemon) over TCP. Unset = not scanned (stated in /readyz and on each upload's audit record).
+    clamav_host: str | None = None
+    clamav_port: int = 3310
+    clamav_timeout_seconds: float = 30.0
+    clamav_fail_closed: bool = True  # reject uploads when a configured scanner cannot be reached
+
     textract_enabled: bool = False
     ocr_min_text_chars_per_page: int = 40
 

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.auth.context import TenantContext
 from app.auth.permissions import Perm
 from app.core.config import get_settings
-from app.core.errors import NotFound, ValidationFailed
+from app.core.errors import NotFound, ServiceUnavailable, ValidationFailed
 from app.core.security import sha256_bytes
 from app.db.base import utcnow
 from app.db.models import (
@@ -26,6 +26,7 @@ from app.db.models import (
 )
 from app.extraction.parsers import filetype
 from app.extraction.parsers.archive import extract_zip
+from app.integrations.antivirus import ScanResult, get_scanner
 from app.services import audit, jobs
 from app.services.billing import entitlements
 from app.storage.backend import assert_key_in_org, get_storage, make_key, sanitise_filename
@@ -40,14 +41,19 @@ class UploadResult:
     warnings: list[str] | None = None
 
 
-def _validate(data: bytes, filename: str) -> filetype.FileIdentity:
+def _validate(data: bytes, filename: str) -> tuple[filetype.FileIdentity, ScanResult]:
     s = get_settings()
     if len(data) > s.max_upload_bytes:
         raise ValidationFailed(f"File exceeds the {s.max_upload_bytes // (1024 * 1024)} MB limit.")
     ident = filetype.identify(data, filename)
     if findings := filetype.basic_threat_scan(data, ident.content_type):
         raise ValidationFailed("File rejected by security scan: " + "; ".join(findings))
-    return ident
+    scan = get_scanner().scan(data)
+    if scan.status == "infected":
+        raise ValidationFailed(f"File rejected: the antivirus scan detected {scan.signature}.")
+    if scan.status == "error" and s.clamav_fail_closed:
+        raise ServiceUnavailable("The antivirus scanner is unavailable, so the upload was not accepted. Try again shortly.")
+    return ident, scan
 
 
 def upload(
@@ -69,7 +75,7 @@ def upload(
 ) -> list[UploadResult]:
     """Upload a file (ZIP archives expand into one document per supported member)."""
     ctx.require(Perm.DOCUMENTS_UPLOAD)
-    ident = _validate(data, filename)
+    ident, scan = _validate(data, filename)
     if ident.content_type == filetype.ZIP and expand_archives:
         if document_id:
             raise ValidationFailed("A ZIP archive cannot be a new version of a single document.")
@@ -132,7 +138,8 @@ def upload(
     db.flush()
     doc.current_version_id = ver.id
     audit.record(db, "document.uploaded", ctx=ctx, subject_type="document", subject_id=doc.id,
-                 data={"version": version_no, "sha256": digest, "filename": ver.original_filename, "size": len(data)})
+                 data={"version": version_no, "sha256": digest, "filename": ver.original_filename, "size": len(data),
+                       "antivirus": {"status": scan.status, "engine": scan.engine}})
     job = None
     if process:
         job = jobs.enqueue(

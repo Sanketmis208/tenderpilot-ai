@@ -127,6 +127,10 @@ def readyz():
     checks["redis"] = "ok" if ratelimit._redis() is not None else "unavailable (in-process rate limiting)"
     checks["storage"] = get_storage().name
     checks["llm"] = "configured" if settings.llm_configured else ("not configured (rule-based demo mode)" if settings.mode == "demo" else "MISSING")
+    from app.integrations.antivirus import get_scanner
+
+    av = get_scanner()
+    checks["antivirus"] = ("clamav ok" if av.ping() else "clamav UNREACHABLE (uploads rejected)") if av.name == "clamav" else "not configured (uploads are not virus-scanned)"
     checks["ocr"] = "textract" if settings.textract_enabled else "disabled (scanned pages will be flagged, not read)"
     ok = checks["database"] == "ok"
     return JSONResponse({"status": "ready" if ok else "degraded", "mode": settings.mode, "checks": checks}, status_code=200 if ok else 503)
