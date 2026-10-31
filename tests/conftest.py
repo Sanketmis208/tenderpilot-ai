@@ -65,6 +65,16 @@ def seeded(database):
         return seed(db)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_tenant_scope():
+    """Row-level-security scope is per execution context; never let one test inherit another's tenant."""
+    from app.db import tenancy
+
+    tenancy.reset()
+    yield
+    tenancy.reset()
+
+
 @pytest.fixture
 def db():
     from app.db.session import session_scope

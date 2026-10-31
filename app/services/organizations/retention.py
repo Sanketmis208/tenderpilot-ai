@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.db.base import utcnow
 from app.db.models import DocumentVersion, Organization, OrgStatus
+from app.db.tenancy import system_scoped
 from app.services import audit
 from app.storage.backend import get_storage
 
@@ -17,6 +18,7 @@ log = get_logger(__name__)
 GRACE_DAYS = 30
 
 
+@system_scoped
 def purge_due_organizations(db: Session) -> int:
     n = 0
     for org in db.scalars(select(Organization).where(Organization.status == OrgStatus.PENDING_DELETION)):
@@ -35,6 +37,7 @@ def purge_due_organizations(db: Session) -> int:
     return n
 
 
+@system_scoped
 def purge_retrieval_logs(db: Session) -> int:
     """Retrieval query logs are kept for TP_RETRIEVAL_LOG_RETENTION_DAYS (privacy: data minimisation)."""
     from sqlalchemy import delete

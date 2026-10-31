@@ -44,6 +44,8 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://localhost/tenderpilot"
     database_pool_size: int = 10
+    # PostgreSQL row-level security (see app/db/tenancy.py). Requires migration b7a1c2d3e4f5 (creates the app role).
+    db_rls_enabled: bool = True
     redis_url: str = "redis://localhost:6379/0"
     celery_eager: bool = False
 

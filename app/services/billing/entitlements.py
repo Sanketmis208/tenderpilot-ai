@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import QuotaExceeded, ServiceUnavailable, ValidationFailed
 from app.db.base import utcnow
 from app.db.models import BillingEvent, DocumentVersion, OrganizationMember, Plan, Subscription, UsageCounter
+from app.db.tenancy import system_scoped
 
 PLAN_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -225,6 +226,7 @@ def request_plan_change(db: Session, org_id: uuid.UUID, plan_code: str, actor_id
     return event
 
 
+@system_scoped
 def apply_plan_change(db: Session, org_id: uuid.UUID, actor_id: uuid.UUID) -> Subscription:
     """Platform-admin action that applies a pending plan change (no payment implied)."""
     sub, _ = get_subscription(db, org_id)

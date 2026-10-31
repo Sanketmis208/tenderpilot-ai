@@ -23,6 +23,17 @@ def main() -> None:
     rx.add_argument("--org", help="Organization name (substring); default: all organizations")
     rx.add_argument("--full", action="store_true", help="Re-embed every chunk, not only stale ones")
     a = p.parse_args()
+    from app.db.tenancy import system_scope
+
+    if a.cmd in ("seed", "create-admin", "create-token", "reindex"):
+        # Operator commands act across organizations by design.
+        with system_scope():
+            _dispatch(a)
+    else:
+        _dispatch(a)
+
+
+def _dispatch(a: argparse.Namespace) -> None:
     if a.cmd == "seed":
         from app.db.session import session_scope
         from app.services.demo.seed import DEMO_PASSWORD, seed

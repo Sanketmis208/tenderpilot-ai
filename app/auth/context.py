@@ -20,7 +20,15 @@ class TenantContext:
     ip_address: str | None = None
     scopes: frozenset[str] = field(default_factory=frozenset)  # api token scopes; empty = role-only
 
+    def bind(self) -> TenantContext:
+        """Scope database row-level security to this organization for the current execution context."""
+        from app.db import tenancy
+
+        tenancy.bind_tenant(self.organization_id)
+        return self
+
     def can(self, perm: Perm) -> bool:
+        self.bind()
         if not has_permission(self.role, perm):
             return False
         return not (self.scopes and perm.value not in self.scopes and "*" not in self.scopes)

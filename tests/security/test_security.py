@@ -42,11 +42,13 @@ def test_role_escalation_blocked(db):
     from app.auth.context import TenantContext
     from app.core.errors import PermissionDenied
     from app.db.models import Organization, OrganizationMember, User
+    from app.db.tenancy import system_scope
     from app.services.organizations import org_service
 
-    org = db.scalar(select(Organization).where(Organization.name.like("VoltEdge%")))
-    admin = db.scalar(select(User).where(User.email == "docs@voltedge.example"))
-    m = db.scalar(select(OrganizationMember).where(OrganizationMember.user_id == admin.id, OrganizationMember.organization_id == org.id))
+    with system_scope():  # test setup reads across tenants
+        org = db.scalar(select(Organization).where(Organization.name.like("VoltEdge%")))
+        admin = db.scalar(select(User).where(User.email == "docs@voltedge.example"))
+        m = db.scalar(select(OrganizationMember).where(OrganizationMember.user_id == admin.id, OrganizationMember.organization_id == org.id))
     ctx = TenantContext(admin.id, org.id, "admin")
     with pytest.raises(PermissionDenied):
         org_service.change_member_role(db, ctx, m.id, "owner")
@@ -174,8 +176,10 @@ def test_mcp_http_isolation_and_mutation_gate(client, db, seeded):
     text = json.dumps(extra)
     assert "Kaveri" not in text
     from app.db.models import ToolExecutionLog
+    from app.db.tenancy import system_scope
 
-    logs = db.scalars(select(ToolExecutionLog).where(ToolExecutionLog.channel == "mcp_http")).all()
+    with system_scope():  # inspection across tenants
+        logs = db.scalars(select(ToolExecutionLog).where(ToolExecutionLog.channel == "mcp_http")).all()
     assert any(lg.status == "denied" for lg in logs) and any(lg.status == "ok" for lg in logs)
 
 

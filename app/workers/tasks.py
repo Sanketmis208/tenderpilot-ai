@@ -87,7 +87,9 @@ def requeue_stuck() -> int:
     cutoff_q = utcnow() - timedelta(minutes=10)
     cutoff_r = utcnow() - timedelta(minutes=40)
     n = 0
-    with session_scope() as db:
+    from app.db.tenancy import system_scope
+
+    with system_scope(), session_scope() as db:
         rows = db.scalars(
             select(ProcessingJob).where(
                 ((ProcessingJob.status == JobStatus.QUEUED) & (ProcessingJob.created_at < cutoff_q))

@@ -13,6 +13,7 @@ from app.core import security
 from app.core.config import get_settings
 from app.core.errors import PermissionDenied, Unauthenticated
 from app.core.logging import request_id_var
+from app.db import tenancy
 from app.db.models import Organization, User, UserSession
 from app.db.session import get_db
 from app.services.organizations import auth_service
@@ -32,6 +33,14 @@ def client_ip(request: Request) -> str | None:
 
 
 def resolve_principal(request: Request, db: Session, *, enforce_csrf: bool = True) -> Principal:
+    """Identity lookups run before any tenant is known (system scope); the result is then bound as the tenant."""
+    with tenancy.system_scope():
+        p = _resolve(request, db, enforce_csrf=enforce_csrf)
+    tenancy.bind_tenant(p.ctx.organization_id if p.ctx else None)
+    return p
+
+
+def _resolve(request: Request, db: Session, *, enforce_csrf: bool) -> Principal:
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
         ctx = auth_service.resolve_api_token(db, auth[7:].strip(), channel="api")
@@ -53,6 +62,7 @@ def resolve_principal(request: Request, db: Session, *, enforce_csrf: bool = Tru
     return Principal(user, sess, _ctx_for(db, user, sess, request))
 
 
+@tenancy.system_scoped
 def _ctx_for(db: Session, user: User, sess: UserSession, request: Request | None) -> TenantContext | None:
     if not sess.active_organization_id:
         return None
@@ -64,14 +74,21 @@ def _ctx_for(db: Session, user: User, sess: UserSession, request: Request | None
     if org.status != "active":
         raise PermissionDenied(f"Organization is {org.status.replace('_', ' ')}.", code="organization_inactive")
     return TenantContext(user_id=user.id, organization_id=org.id, role=m.role, email=user.email, channel="web",
-                         request_id=request_id_var.get(), ip_address=client_ip(request) if request else None)
+                         request_id=request_id_var.get(), ip_address=client_ip(request) if request else None).bind()
 
 
-def principal_dep(request: Request, db: Session = Depends(get_db)) -> Principal:
+def _principal(request: Request, db: Session = Depends(get_db)) -> Principal:
     return resolve_principal(request, db)
 
 
-def ctx_dep(p: Principal = Depends(principal_dep)) -> TenantContext:
+async def principal_dep(p: Principal = Depends(_principal)) -> Principal:
+    # Sync dependencies run in a copied context, so their tenant binding does not reach the endpoint. This async
+    # dependency runs in the request task, whose context the (sync) endpoint inherits.
+    tenancy.bind_tenant(p.ctx.organization_id if p.ctx else None)
+    return p
+
+
+async def ctx_dep(p: Principal = Depends(principal_dep)) -> TenantContext:
     if p.ctx is None:
         raise PermissionDenied("Create or select an organization first.", code="no_organization")
     return p.ctx

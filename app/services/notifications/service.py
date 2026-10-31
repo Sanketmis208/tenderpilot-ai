@@ -26,6 +26,7 @@ from app.db.models import (
     TenderStatus,
     User,
 )
+from app.db.tenancy import system_scoped
 from app.services.notifications.email import get_email_provider
 
 log = get_logger(__name__)
@@ -107,6 +108,7 @@ def _deliver_email(db: Session, notification_id: uuid.UUID) -> None:
     n.email_provider_message_id = res.message_id
 
 
+@system_scoped
 def retry_failed_emails(db: Session) -> int:
     rows = db.scalars(
         select(Notification).where(Notification.email_status == "failed", Notification.email_attempts < MAX_EMAIL_ATTEMPTS).limit(200)
@@ -158,6 +160,7 @@ REMINDER_WINDOWS = [(timedelta(days=7), "7d"), (timedelta(days=3), "3d"), (timed
 ACTIVE = [TenderStatus.SHORTLISTED, TenderStatus.BID_PREPARATION, TenderStatus.AWAITING_APPROVAL, TenderStatus.UNDER_EVALUATION, TenderStatus.READY_FOR_SUBMISSION]
 
 
+@system_scoped
 def send_deadline_reminders(db: Session) -> int:
     from app.extraction.normalization.values import IST
 
@@ -209,6 +212,7 @@ def send_deadline_reminders(db: Session) -> int:
     return sent
 
 
+@system_scoped
 def send_expiry_warnings(db: Session) -> int:
     today = utcnow().date()
     rows = db.execute(

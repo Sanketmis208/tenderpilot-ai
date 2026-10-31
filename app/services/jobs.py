@@ -18,6 +18,7 @@ from app.core.logging import get_logger
 from app.db.base import utcnow
 from app.db.models import JobStatus, ProcessingJob
 from app.db.session import session_scope
+from app.db.tenancy import system_scope, tenant_scope
 
 log = get_logger(__name__)
 
@@ -114,7 +115,19 @@ def _job_session(job_id: uuid.UUID):
 
 
 def execute(job_id: uuid.UUID) -> str:
-    """Run a job once. Returns the resulting status. Safe to call repeatedly (idempotent)."""
+    """Run a job once. Returns the resulting status. Safe to call repeatedly (idempotent).
+
+    The job's organization is looked up in system scope; everything else (handler included) runs scoped to that
+    organization, so a worker thread can never touch another tenant's rows while processing this job."""
+    with system_scope(), session_scope() as db:
+        org_id = db.scalar(select(ProcessingJob.organization_id).where(ProcessingJob.id == job_id))
+    if org_id is None:
+        return "missing"
+    with tenant_scope(org_id):
+        return _execute(job_id)
+
+
+def _execute(job_id: uuid.UUID) -> str:
     with _job_session(job_id) as (db, job):
         if job is None:
             return "missing"

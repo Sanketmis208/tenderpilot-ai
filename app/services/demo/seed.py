@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.auth.context import TenantContext
 from app.core.config import BASE_DIR
 from app.db.models import CompanyProfile, Organization, OrganizationMember, Role, Tender, User
+from app.db.tenancy import system_scoped
 from app.services.billing import entitlements
 from app.services.documents import service as documents
 from app.services.organizations import auth_service, org_service
@@ -83,6 +84,7 @@ def _upload(db: Session, ctx: TenantContext, path: Path, **kw):
     return documents.upload(db, ctx, path.read_bytes(), path.name, is_synthetic=True, **kw)
 
 
+@system_scoped
 def seed(db: Session, *, with_tenders: bool = True) -> SeedResult:
     entitlements.ensure_plans(db)
     res = SeedResult()

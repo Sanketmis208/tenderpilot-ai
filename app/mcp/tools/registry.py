@@ -376,6 +376,7 @@ def call_tool(db: Session, ctx: TenantContext | None, name: str, arguments: dict
               agent_run_id: uuid.UUID | None = None, allow_mutations: bool = False) -> dict[str, Any]:
     if ctx is None:
         raise PermissionDenied("Authentication required.")
+    ctx.bind()  # database row-level security scope = the verified caller's organization
     tool = TOOLS.get(name)
     started = time.monotonic()
     status, error, result = "ok", None, None

@@ -26,6 +26,7 @@ from app.db.models import (
     Role,
     User,
 )
+from app.db.tenancy import system_scoped
 from app.services import audit
 from app.services.billing import entitlements
 from app.services.notifications.email import get_email_provider
@@ -38,6 +39,7 @@ def _slugify(name: str) -> str:
     return f"{base}-{secrets.token_hex(3)}"
 
 
+@system_scoped
 def create_organization(db: Session, user: User, name: str, *, is_demo: bool = False) -> Organization:
     name = name.strip()
     if len(name) < 2:
@@ -52,6 +54,7 @@ def create_organization(db: Session, user: User, name: str, *, is_demo: bool = F
     return org
 
 
+@system_scoped
 def list_user_organizations(db: Session, user_id: uuid.UUID) -> list[tuple[Organization, str]]:
     rows = db.execute(
         select(Organization, OrganizationMember.role)
@@ -115,6 +118,7 @@ def invite_member(db: Session, ctx: TenantContext, email: str, role: str) -> tup
     return inv, raw
 
 
+@system_scoped
 def get_invitation(db: Session, raw: str) -> Invitation:
     inv = db.scalar(select(Invitation).where(Invitation.token_hash == security.hash_token(raw)))
     if not inv or inv.revoked_at or inv.accepted_at:
@@ -124,6 +128,7 @@ def get_invitation(db: Session, raw: str) -> Invitation:
     return inv
 
 
+@system_scoped
 def accept_invitation(db: Session, raw: str, user: User) -> OrganizationMember:
     inv = get_invitation(db, raw)
     if inv.email != user.email:
@@ -274,6 +279,7 @@ def update_document_template(db: Session, ctx: TenantContext, *, branding_in: di
     return org
 
 
+@system_scoped
 def set_suspension(db: Session, actor: User, org_id: uuid.UUID, suspended: bool, reason: str | None = None) -> Organization:
     if not actor.is_platform_admin:
         raise PermissionDenied("Platform administrator access required.")

@@ -130,4 +130,4 @@ def suspend(org_id: uuid.UUID, suspended: bool = True, reason: str | None = None
 def apply_plan(org_id: uuid.UUID, p: Principal = Depends(principal_dep), db: Session = Depends(get_db)):
     if not p.user.is_platform_admin:
         raise PermissionDenied("Platform administrator access required.")
-    entitlements.apply_plan_change(db, org_id, p.user.id)
+    entitlements.apply_plan_change(db, org_id, p.user.id)  # system-scoped inside: cross-tenant platform-admin action

@@ -7,7 +7,7 @@ exercised and what was not.
 
 | Check | Result |
 |---|---|
-| Unit + integration + security + evaluation tests (`pytest -m "not e2e"`) | **161 passed** locally (PostgreSQL 18 + pgvector 0.8.2); line coverage 81% overall — rule engine 94%, eligibility service 93%, generation 98%, MCP tools 93%, URL fetch 100%, bid preparation agent 85% |
+| Unit + integration + security + evaluation tests (`pytest -m "not e2e"`) | **167 passed** locally (PostgreSQL 18 + pgvector 0.8.2); line coverage 81% overall — rule engine 94%, eligibility service 93%, generation 98%, MCP tools 93%, URL fetch 100%, bid preparation agent 85% |
 | Browser e2e (Python Playwright, Chromium, live server + Celery worker, Groq configured) | **4 passed** — full user journey, bad-password path, auth redirect, cross-tenant URL |
 | End-to-end §34 scenario (API-level, `tests/integration/test_demo_scenario.py`) | passed — see docs/testing.md for the steps |
 | Lint (ruff) / type check (mypy on core, services, schemas, auth) | clean |
@@ -45,7 +45,7 @@ auto-reload after processing reset the open tab (exposed once LLM extraction mad
 | 19. Analytics | Done from persisted data; empty states for fresh orgs |
 | 20. SaaS admin | Plans/entitlements/quotas/usage counters/billing history/plan-change requests. **No payment processor** — requests await an admin, nothing is reported as paid |
 | 21. UI | All 12 navigation areas + landing/auth/onboarding/viewer/search. Responsive drawer; not formally audited for WCAG |
-| 22–26. Data, API, storage, workers, security | Done; see architecture, API and security docs |
+| 22–26. Data, API, storage, workers, security | Done; Postgres row-level security on all 48 tenant tables + `organizations` (non-bypassing app role, deny by default, verified by `tests/security/test_rls.py`, the full suite and the browser e2e running under it); see architecture, API and security docs |
 | 32. Deployment | Dockerfile, Compose stack, Terraform, CI + manual deploy workflow — deployment itself not performed |
 
 ## Credentials / resources required to go further
@@ -58,7 +58,8 @@ domain + ACM certificate · SMTP provider · optional embeddings endpoint · a p
 * Hindi: detected and flagged for review; rule extraction is English-only.
 * Rule-based extraction covers common NIT/RFP clause shapes; unusual phrasing needs the LLM extractor or manual entry.
 * `hashing-v1` embeddings are lexical, not semantic.
-* Antivirus only when a clamd service is configured; no Postgres RLS; no MFA/SSO (see docs/security.md).
+* Antivirus only when a clamd service is configured; no MFA/SSO (see docs/security.md).
+* RLS adds two statements (`SET LOCAL ROLE`, `set_config`) to every transaction; not load-tested.
 * The bid-summary claim check covers numerals, rupee amounts, dates and standard codes, not counts written as words.
 * Agent completion rate is measured from persisted runs, not from a dedicated agent benchmark.
 * NiceGUI keeps per-connection state in the web process: horizontal scaling needs sticky sessions (configured on the ALB).
@@ -68,5 +69,5 @@ domain + ACM certificate · SMTP provider · optional embeddings endpoint · a p
 
 1. Run `tenderpilot eval` on real (anonymised) tenders and compare rules vs Groq vs Claude.
 2. Grow the evaluation set with real tenders and reviewer-labelled answers.
-3. Provision ClamAV (or GuardDuty Malware Protection for S3) in AWS and add Postgres RLS.
+3. Provision ClamAV (or GuardDuty Malware Protection for S3) in AWS.
 4. `terraform plan` in a staging account; run the Deploy workflow; add error tracking and alarms.

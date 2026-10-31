@@ -17,6 +17,7 @@ from app.core.errors import Conflict, PermissionDenied, Unauthenticated, Validat
 from app.core.logging import get_logger
 from app.db.base import utcnow
 from app.db.models import ApiToken, AuthToken, OrganizationMember, User, UserSession
+from app.db.tenancy import system_scoped
 from app.services import audit
 from app.services.notifications.email import get_email_provider
 
@@ -34,6 +35,7 @@ def normalise_email(email: str) -> str:
     return email
 
 
+@system_scoped
 def register_user(db: Session, *, email: str, password: str, full_name: str) -> User:
     email = normalise_email(email)
     if problems := security.validate_password_strength(password):
@@ -79,6 +81,7 @@ def send_verification_email(db: Session, user: User) -> str:
     return raw
 
 
+@system_scoped
 def verify_email(db: Session, raw: str) -> User:
     user = _consume_auth_token(db, raw, "email_verify")
     user.email_verified_at = utcnow()
@@ -86,6 +89,7 @@ def verify_email(db: Session, raw: str) -> User:
     return user
 
 
+@system_scoped
 def request_password_reset(db: Session, email: str) -> str | None:
     """Always behaves the same externally to avoid account enumeration."""
     try:
@@ -105,6 +109,7 @@ def request_password_reset(db: Session, email: str) -> str | None:
     return raw
 
 
+@system_scoped
 def reset_password(db: Session, raw: str, new_password: str) -> User:
     if problems := security.validate_password_strength(new_password):
         raise ValidationFailed(" ".join(problems))
@@ -121,6 +126,7 @@ def reset_password(db: Session, raw: str, new_password: str) -> User:
     return user
 
 
+@system_scoped
 def authenticate(db: Session, email: str, password: str) -> User:
     try:
         email = normalise_email(email)
@@ -154,6 +160,7 @@ class IssuedSession:
     session: UserSession
 
 
+@system_scoped
 def create_session(db: Session, user: User, *, ip: str | None = None, user_agent: str | None = None) -> IssuedSession:
     s = get_settings()
     raw, csrf = security.new_token(), security.new_token(24)
@@ -186,6 +193,7 @@ def create_session(db: Session, user: User, *, ip: str | None = None, user_agent
     return IssuedSession(raw, csrf, sess)
 
 
+@system_scoped
 def resolve_session(db: Session, raw: str | None) -> tuple[UserSession, User] | None:
     if not raw:
         return None
@@ -205,6 +213,7 @@ def resolve_session(db: Session, raw: str | None) -> tuple[UserSession, User] | 
     return sess, user
 
 
+@system_scoped
 def revoke_session(db: Session, raw: str | None) -> None:
     if not raw:
         return
@@ -215,6 +224,7 @@ def revoke_session(db: Session, raw: str | None) -> None:
     )
 
 
+@system_scoped
 def membership_for(db: Session, user_id: uuid.UUID, org_id: uuid.UUID) -> OrganizationMember | None:
     return db.scalar(
         select(OrganizationMember).where(
@@ -225,6 +235,7 @@ def membership_for(db: Session, user_id: uuid.UUID, org_id: uuid.UUID) -> Organi
     )
 
 
+@system_scoped
 def switch_organization(db: Session, sess: UserSession, org_id: uuid.UUID) -> None:
     if not membership_for(db, sess.user_id, org_id):
         raise PermissionDenied("You are not a member of that organization.")
@@ -240,6 +251,7 @@ API_TOKEN_PREFIX = "tpk_"  # noqa: S105 (public prefix, not a secret)
 def create_api_token(
     db: Session, ctx: TenantContext, name: str, scopes: list[str] | None = None, ttl_days: int | None = 90
 ) -> tuple[ApiToken, str]:
+    ctx.bind()
     raw = API_TOKEN_PREFIX + security.new_token(32)
     tok = ApiToken(
         organization_id=ctx.organization_id,
@@ -256,6 +268,7 @@ def create_api_token(
     return tok, raw
 
 
+@system_scoped
 def resolve_api_token(db: Session, raw: str | None, *, channel: str = "api") -> TenantContext | None:
     if not raw or not raw.startswith(API_TOKEN_PREFIX):
         return None

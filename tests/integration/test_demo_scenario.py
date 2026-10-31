@@ -109,9 +109,11 @@ def test_04_reviewer_resolves_and_resumes_workflow(rev, db):
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "completed"
     from app.db.models import AgentRun, EligibilityAssessment
+    from app.db.tenancy import system_scope
 
-    a = db.get(EligibilityAssessment, uuid.UUID(S["a1"]))
-    run = db.get(AgentRun, a.agent_run_id)
+    with system_scope():  # test inspection across the API boundary
+        a = db.get(EligibilityAssessment, uuid.UUID(S["a1"]))
+        run = db.get(AgentRun, a.agent_run_id)
     assert run.status == "completed"
     assert [h_["node"] for h_ in run.history][-2:] == ["human_review", "remediation"]
 
@@ -169,10 +171,12 @@ def test_08_export_package_files_open(bm, db):
     kinds = {a["kind"] for a in arts}
     assert {"technical_response", "compliance_matrix", "document_checklist", "evidence_report", "risk_report", "submission_package"} <= kinds
     from app.db.models import Document
+    from app.db.tenancy import system_scope
 
     files = {}
     for a in arts:
-        ver = db.get(Document, uuid.UUID(a["document_id"])).current_version_id
+        with system_scope():
+            ver = db.get(Document, uuid.UUID(a["document_id"])).current_version_id
         url = c.get(f"/api/v1/document-versions/{ver}/download").json()["url"]
         resp = c.get(url)
         assert resp.status_code == 200

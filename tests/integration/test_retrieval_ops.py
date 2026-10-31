@@ -53,7 +53,7 @@ def test_incremental_reindex_only_touches_stale_chunks(seeded, db):
     from app.ai.retrieval.reindex import reindex, stale_count
     from app.db.models import DocumentChunk
 
-    org = seeded.contexts["owner@kaveri.example"].organization_id
+    org = seeded.contexts["owner@kaveri.example"].bind().organization_id
     ids = db.scalars(select(DocumentChunk.id).where(DocumentChunk.organization_id == org).limit(3)).all()
     assert ids and stale_count(db, org) == 0
     db.execute(update(DocumentChunk).where(DocumentChunk.id.in_(ids)).values(embedding_model="old-model-v0"))

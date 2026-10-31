@@ -7,8 +7,22 @@ database; verified in CI and the test suite, which rebuilds the schema from scra
 
 Every tenant-owned table has an indexed, non-null `organization_id` FK (`TenantMixin`) with `ON DELETE CASCADE`.
 Services always filter by the `organization_id` of the server-resolved `TenantContext`; IDs from clients are only
-ever looked up *within* that organization, so a foreign ID returns 404. Row-level security is not enabled in this
-release (see Security → limitations); isolation is enforced in the service layer and covered by tests.
+ever looked up *within* that organization, so a foreign ID returns 404.
+
+**Row-level security (defence in depth).** Migration `b7a1c2d3e4f5` creates the non-owner role `tenderpilot_app` (no
+`BYPASSRLS`) and a `tenant_isolation` policy on every table with an `organization_id` column, plus `organizations`
+itself:
+
+```sql
+USING / WITH CHECK (
+  current_setting('app.rls_bypass', true) = 'on'
+  OR organization_id = NULLIF(current_setting('app.org_id', true), '')::uuid)
+```
+
+Each app transaction runs `SET LOCAL ROLE tenderpilot_app` and sets `app.org_id` / `app.rls_bypass` from the current
+scope (`app/db/tenancy.py`). Unscoped code sees no tenant rows and cannot write them. Tables are not `FORCE`d, so
+Alembic (running as the owner) is unaffected. A test fails if any table with `organization_id` lacks RLS or a policy,
+so new tables cannot silently skip it. Disable with `TP_DB_RLS_ENABLED=false` (not recommended).
 
 ## Entities
 

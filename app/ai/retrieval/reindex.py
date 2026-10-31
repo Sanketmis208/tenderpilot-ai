@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.ai.retrieval.embeddings import _cached_hash_vec, get_embedder
 from app.core.logging import get_logger
 from app.db.models import DocumentChunk
+from app.db.tenancy import system_scoped
 
 log = get_logger(__name__)
 
@@ -21,10 +22,12 @@ def _stale(model: str, org_id: uuid.UUID | None):
     return (cond, DocumentChunk.organization_id == org_id) if org_id else (cond,)
 
 
+@system_scoped
 def stale_count(db: Session, org_id: uuid.UUID | None = None) -> int:
     return db.scalar(select(func.count()).select_from(DocumentChunk).where(*_stale(get_embedder().model_name, org_id))) or 0
 
 
+@system_scoped
 def reindex(db: Session, org_id: uuid.UUID | None = None, *, batch: int = 256, full: bool = False) -> dict:
     """Re-embed stale chunks (or every chunk with full=True), committing per batch so it can resume."""
     embedder = get_embedder()

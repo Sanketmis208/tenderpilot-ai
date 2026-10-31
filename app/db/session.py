@@ -16,7 +16,7 @@ from app.core.config import get_settings
 @lru_cache
 def get_engine() -> Engine:
     s = get_settings()
-    return create_engine(
+    engine = create_engine(
         s.database_url,
         pool_size=s.database_pool_size,
         max_overflow=s.database_pool_size,
@@ -24,6 +24,11 @@ def get_engine() -> Engine:
         future=True,
         connect_args={"options": "-c timezone=UTC"},
     )
+    if s.db_rls_enabled:
+        from app.db import tenancy
+
+        tenancy.install(engine)
+    return engine
 
 
 @lru_cache

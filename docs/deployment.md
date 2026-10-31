@@ -18,9 +18,10 @@ Textract) · GitHub OIDC deploy role scoped to one repository environment · CPU
 1. Request an ACM certificate for your domain in the target region.
 2. `cd infra/aws && terraform init && terraform apply -var domain_name=app.example.com -var acm_certificate_arn=… -var github_repository=owner/tenderpilot-ai`
 3. Add provider secrets to `<env>/providers` (e.g. `TP_ANTHROPIC_API_KEY`, SMTP) and reference them in the task definition `secrets` list.
-4. Enable pgvector once: `CREATE EXTENSION vector; CREATE EXTENSION pg_trgm;` (the initial migration also attempts this; the RDS master user can create them).
-5. In GitHub: set `secrets.AWS_ROLE_ARN` (output `deploy_role_arn`) and vars `AWS_REGION`, `ECR_REPOSITORY`, `ECS_CLUSTER`, `ECS_NETWORK_CONFIG`; run the **Deploy** workflow (builds, pushes, migrates, rolls services).
-6. Point DNS at `alb_dns_name`. Create the first platform admin with `tenderpilot create-admin` (ECS exec or one-off task).
+4. The migrating/connecting database user must be allowed to create roles (the RDS master user is): the RLS migration creates `tenderpilot_app` and grants it to that user so the app can `SET ROLE` to it.
+5. Enable pgvector once: `CREATE EXTENSION vector; CREATE EXTENSION pg_trgm;` (the initial migration also attempts this; the RDS master user can create them).
+6. In GitHub: set `secrets.AWS_ROLE_ARN` (output `deploy_role_arn`) and vars `AWS_REGION`, `ECR_REPOSITORY`, `ECS_CLUSTER`, `ECS_NETWORK_CONFIG`; run the **Deploy** workflow (builds, pushes, migrates, rolls services).
+7. Point DNS at `alb_dns_name`. Create the first platform admin with `tenderpilot create-admin` (ECS exec or one-off task).
 
 ## Operations
 

@@ -100,7 +100,7 @@ def test_fresh_org_dashboard_has_no_fabricated_metrics(db):
 def test_notifications_dedup_and_email_status(seeded, db):
     from app.services.notifications.service import notify
 
-    ctx = seeded.contexts["owner@voltedge.example"]
+    ctx = seeded.contexts["owner@voltedge.example"].bind()
     kw = dict(organization_id=ctx.organization_id, user_id=ctx.user_id, kind="deadline", title="t", dedup_key="dedup-test")
     assert notify(db, **kw) is True
     assert notify(db, **kw) is False

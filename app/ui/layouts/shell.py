@@ -15,6 +15,7 @@ from app.auth.deps import ui_principal
 from app.auth.permissions import ROLE_LABELS, Perm
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.db import tenancy
 from app.db.models import Organization
 from app.db.session import session_scope
 from app.services.notifications import service as notifications
@@ -49,6 +50,18 @@ class PageCtx:
         return self.ctx.can(perm)
 
 
+def _client_tenant() -> uuid.UUID | None:
+    try:
+        from nicegui import context
+
+        return getattr(context.client, "tp_org_id", None)
+    except (RuntimeError, AttributeError, IndexError):  # not inside a NiceGUI client context
+        return None
+
+
+tenancy.register_fallback(_client_tenant)
+
+
 def require_ctx(request: Request) -> PageCtx | None:
     with session_scope() as db:
         p = ui_principal(request, db)
@@ -59,6 +72,8 @@ def require_ctx(request: Request) -> PageCtx | None:
             ui.navigate.to("/onboarding")
             return None
         org = db.get(Organization, p.ctx.organization_id)
+        # Later UI events (clicks, timers) run in other tasks; they find the tenant through this client.
+        ui.context.client.tp_org_id = p.ctx.organization_id  # type: ignore[attr-defined]
         return PageCtx(p.ctx, p.user.full_name, org.name if org else "", bool(org and org.is_demo), request.cookies.get(get_settings().session_cookie_name))
 
 

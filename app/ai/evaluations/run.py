@@ -22,6 +22,7 @@ from app.ai.evaluations.dataset import (
     RETRIEVAL_CORPUS,
     RULE_CASES,
 )
+from app.db.tenancy import system_scoped
 from app.extraction.parsers.types import ParsedBlock, ParsedDocument, ParsedPage
 from app.extraction.tender_rules import extract_requirements
 from app.services.eligibility import rules
@@ -126,6 +127,7 @@ def eval_amendments() -> dict:
     return {"accuracy": round(sum(r["ok"] for r in results) / len(results), 3), "cases": results}
 
 
+@system_scoped
 def eval_retrieval(db) -> dict:
     """Hybrid retrieval over an isolated synthetic corpus in a throwaway organization (rolled back)."""
     from app.ai.retrieval.chunking import chunk_document
@@ -173,6 +175,7 @@ def eval_retrieval(db) -> dict:
             "latency_ms_total": int((time.monotonic() - t0) * 1000), "cases": cases}
 
 
+@system_scoped
 def eval_agent_runs(db) -> dict:
     """Agent completion rate from persisted runs (completed or correctly paused for a human vs failed)."""
     from sqlalchemy import func, select
