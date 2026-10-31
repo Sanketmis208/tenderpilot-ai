@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypeVar
 
@@ -120,8 +121,11 @@ class ToolTurn:
     usage: Usage
 
 
+TextSink = Callable[[str], None] | None
+
+
 class ToolConversation(Protocol):
-    def step(self) -> ToolTurn: ...
+    def step(self, on_text: TextSink = None) -> ToolTurn: ...
     def add_results(self, results: list[tuple[ToolCall, str]]) -> None: ...
 
 
@@ -198,11 +202,19 @@ class _AnthropicToolConversation:
         self.messages: list[dict[str, Any]] = list(messages)
         self.tools = [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
 
-    def step(self) -> ToolTurn:
+    def step(self, on_text: TextSink = None) -> ToolTurn:
         started = time.monotonic()
-        resp = self.be._guard(lambda: self.be.client.beta.messages.create(
-            model=self.be.model, max_tokens=8000, system=self.system, messages=self.messages, tools=self.tools,
-            output_config={"effort": "medium"}, betas=[FALLBACK_BETA], fallbacks="default"))
+        kwargs: dict[str, Any] = {"model": self.be.model, "max_tokens": 8000, "system": self.system, "messages": self.messages, "tools": self.tools,
+                                  "output_config": {"effort": "medium"}, "betas": [FALLBACK_BETA], "fallbacks": "default"}
+        if on_text is None:
+            resp = self.be._guard(lambda: self.be.client.beta.messages.create(**kwargs))
+        else:
+            def _streamed():
+                with self.be.client.beta.messages.stream(**kwargs) as stream:
+                    for delta in stream.text_stream:
+                        on_text(delta)
+                    return stream.get_final_message()
+            resp = self.be._guard(_streamed)
         if resp.stop_reason == "refusal":
             raise LLMRefused("declined")
         self.messages.append({"role": "assistant", "content": [b.model_dump(exclude_none=True) for b in resp.content]})
@@ -246,6 +258,58 @@ class GroqBackend:
             return r.json(), int((time.monotonic() - started) * 1000)
         raise ServiceUnavailable(f"LLM provider unavailable: {last}")
 
+    def _stream(self, body: dict[str, Any], on_text: Callable[[str], None]) -> tuple[dict[str, Any], int]:
+        """Server-sent-events variant of _post: forwards content deltas to on_text and reassembles the
+        final message (content + tool calls + usage) in the same shape as a non-streamed response."""
+        started = time.monotonic()
+        body = {**body, "stream": True, "stream_options": {"include_usage": True}}
+        last: Exception | None = None
+        for attempt in range(3):
+            content: list[str] = []
+            calls: dict[int, dict[str, Any]] = {}
+            usage: dict[str, Any] = {}
+            model = body["model"]
+            try:
+                with httpx.stream("POST", self.url, headers=self.headers, json=body, timeout=self.timeout) as r:
+                    if r.status_code == 429 or r.status_code >= 500:
+                        last = ServiceUnavailable(f"LLM provider returned {r.status_code}.")
+                        time.sleep(float(r.headers.get("retry-after", 1.5 * (attempt + 1))))
+                        continue
+                    if r.status_code >= 400:
+                        r.read()
+                        raise ServiceUnavailable(f"LLM provider rejected the request ({r.status_code}): {r.json().get('error', {}).get('message', '')[:200]}")
+                    for line in r.iter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[5:].strip()
+                        if payload == "[DONE]":
+                            break
+                        chunk = json.loads(payload)
+                        model = chunk.get("model") or model
+                        usage = chunk.get("usage") or (chunk.get("x_groq") or {}).get("usage") or usage
+                        for ch in chunk.get("choices") or []:
+                            if ch.get("finish_reason") == "content_filter":
+                                raise LLMRefused("The model declined this request.")
+                            d = ch.get("delta") or {}
+                            if d.get("content"):
+                                content.append(d["content"])
+                                on_text(d["content"])
+                            for tc in d.get("tool_calls") or []:
+                                slot = calls.setdefault(tc.get("index", 0), {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                                slot["id"] = tc.get("id") or slot["id"]
+                                fn = tc.get("function") or {}
+                                slot["function"]["name"] += fn.get("name") or ""
+                                slot["function"]["arguments"] += fn.get("arguments") or ""
+            except httpx.HTTPError as exc:
+                last = exc
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            msg: dict[str, Any] = {"role": "assistant", "content": "".join(content) or None}
+            if calls:
+                msg["tool_calls"] = [calls[i] for i in sorted(calls)]
+            return {"model": model, "choices": [{"message": msg}], "usage": usage}, int((time.monotonic() - started) * 1000)
+        raise ServiceUnavailable(f"LLM provider unavailable: {last}")
+
     @staticmethod
     def _usage(data: dict[str, Any], model: str, ms: int) -> Usage:
         u = data.get("usage") or {}
@@ -287,9 +351,12 @@ class _OpenAIToolConversation:
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system}, *messages]
         self.tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["parameters"]}} for t in tools]
 
-    def step(self) -> ToolTurn:
-        data, ms = self.be._post({"model": self.be.model, "messages": self.messages, "tools": self.tools, "tool_choice": "auto",
-                                  "max_completion_tokens": 8000})
+    def step(self, on_text: TextSink = None) -> ToolTurn:
+        body = {"model": self.be.model, "messages": self.messages, "tools": self.tools, "tool_choice": "auto", "max_completion_tokens": 8000}
+        if on_text is None:
+            data, ms = self.be._post(body)
+        else:
+            data, ms = self.be._stream(body, on_text)
         msg = data["choices"][0]["message"]
         self.messages.append({k: v for k, v in msg.items() if k in ("role", "content", "tool_calls")})
         calls = []

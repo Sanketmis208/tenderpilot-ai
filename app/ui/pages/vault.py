@@ -287,6 +287,8 @@ def copilot_page(request: Request):
                                 "own records via TenderPilot tools, with sources. Pick a tender context and start a conversation.")
                     return
                 msgs_area = ui.scroll_area().classes("col w-full")
+                stream_md = ui.markdown("").classes("text-body2 w-full")
+                stream_md.set_visibility(False)
                 status_line = ui.label("").classes("text-caption tp-muted")
 
                 def render():
@@ -298,8 +300,11 @@ def copilot_page(request: Request):
                         with msgs_area:
                             ui.label(exc.message).classes("text-negative")
                         return
+                    last_q = ""
                     with msgs_area:
                         for mid, role, content, cites, calls, sugg, mode in msgs:
+                            if role == "user":
+                                last_q = content
                             with ui.chat_message(sent=role == "user", name="You" if role == "user" else "Copilot").classes("w-full"):
                                 ui.markdown(content).classes("text-body2")
                                 if role == "assistant":
@@ -322,19 +327,28 @@ def copilot_page(request: Request):
                                     with ui.row().classes("gap-1"):
                                         for s_ in sugg[:3]:
                                             ui.button(s_, on_click=lambda s_=s_: send(s_)).props("dense flat no-caps color=secondary").classes("text-caption")
-                                        if pc.can(Perm.TASKS_WRITE):
-                                            ui.button("Save as note", icon="note_add", on_click=lambda content=content: save_note(content)).props("dense flat no-caps")
+                                        if pc.can(Perm.TASKS_WRITE) and mode != "error":
+                                            ui.button("Save as note", icon="note_add", on_click=lambda content=content: save_to_workspace("note", content)).props("dense flat no-caps")
+                                            ui.button("Create task", icon="add_task", on_click=lambda content=content, q=last_q: save_to_workspace("task", content, q)).props("dense flat no-caps")
+                                        if pc.can(Perm.BIDS_WRITE) and mode != "error":
+                                            ui.button("Draft response", icon="edit_note", on_click=lambda content=content, q=last_q: save_to_workspace("draft", content, q)).props("dense flat no-caps")
                     msgs_area.scroll_to(percent=1.0)
 
-                def save_note(content):
+                def save_to_workspace(kind, content, question=""):
+                    """Explicit user actions (the click is the approval): note, task or draft response from an answer."""
                     with session_scope() as db:
                         conv = copilot.get_conversation(db, pc.ctx, state["cid"])
                         tid = conv.tender_id
                     if not tid:
-                        ui.notify("Attach a tender to this conversation to save notes into its workspace.", type="warning")
+                        ui.notify("Attach a tender to this conversation to save into its bid workspace.", type="warning")
                         return
-                    run(lambda db: call_tool(db, pc.ctx, "save_draft_response",
-                        {"tender_id": str(tid), "heading": "Copilot note", "body": content[:19000]}, channel="copilot_ui", allow_mutations=True), success="Saved to the bid workspace")
+                    body = content.replace("_Rule-based answer — no language model is configured; results come directly from TenderPilot tools._", "").strip()[:19000]
+                    if kind == "task":
+                        name, args, msg = "create_remediation_task", {"tender_id": str(tid), "title": ("Follow up: " + (question or body))[:300], "description": body[:4000]}, "Task created"
+                    else:
+                        heading = "Copilot note" if kind == "note" else ("Draft response: " + (question or "copilot answer"))[:200]
+                        name, args, msg = "save_draft_response", {"tender_id": str(tid), "heading": heading, "body": body}, "Saved to the bid workspace"
+                    run(lambda db: call_tool(db, pc.ctx, name, args, channel="copilot_ui", allow_mutations=True), success=msg)
 
                 async def send(text: str | None = None):
                     q = (text or box.value or "").strip()
@@ -342,8 +356,17 @@ def copilot_page(request: Request):
                         return
                     box.value = ""
                     status_line.text = "Thinking…"
+                    streamed: list[str] = []
 
                     async def on_step(step):
+                        if step.get("state") == "streaming":
+                            streamed.append(step["text"])
+                            stream_md.set_content("".join(streamed))
+                            stream_md.set_visibility(True)
+                            status_line.text = "Writing…"
+                            return
+                        streamed.clear()  # a tool call follows: discard any streamed preamble
+                        stream_md.set_visibility(False)
                         status_line.text = f"Running tool: {step['tool'].replace('_', ' ')}…"
                     try:
                         await copilot.ask(pc.ctx, state["cid"], q, on_step=on_step)
@@ -352,6 +375,7 @@ def copilot_page(request: Request):
                     except Exception:
                         ui.notify("The copilot could not complete this request.", type="negative")
                     status_line.text = ""
+                    stream_md.set_visibility(False)
                     render()
 
                 render()

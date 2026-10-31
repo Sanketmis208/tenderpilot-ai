@@ -1,7 +1,8 @@
 """Procurement Copilot (Agent 6).
 
 Graph: plan → act (MCP tool calls through an in-process MCP client session) → respond → verify citations.
-- LLM mode (TP_ANTHROPIC_API_KEY set): Claude decides which MCP tools to call (bounded loop).
+- LLM mode (an LLM provider configured): the model decides which MCP tools to call (bounded loop); the
+  final answer is streamed token by token to the UI through the on_step callback.
 - Rule-based mode (demo / no LLM): deterministic intent routing; answers are labelled as such.
 Mutation tools are never executed by the agent: they are returned as pending actions that the
 signed-in user must approve (see execute_pending_action).
@@ -179,10 +180,17 @@ async def _llm_loop(db: Session, ctx: TenantContext, state: CopilotState, run_id
     conv = llm.tool_conversation(system, [*history, {"role": "user", "content": state["question"]}], _tool_schemas())
     obs: list[dict[str, Any]] = []
     pending: list[dict[str, Any]] = []
+    loop = asyncio.get_running_loop()
+
+    def on_text(delta: str) -> None:
+        # Called from the worker thread for each streamed token chunk; forwarded to the UI on its event loop.
+        if on_step:
+            asyncio.run_coroutine_threadsafe(on_step({"state": "streaming", "text": delta}), loop)
+
     for _ in range(MAX_TOOL_ROUNDS):
         budget.step()
         budget.check()
-        turn = await asyncio.to_thread(conv.step)
+        turn = await asyncio.to_thread(conv.step, on_text if on_step else None)
         llm.record(db, ctx.organization_id, turn.usage, "copilot", budget, run_id)
         if not turn.calls:
             state["answer"] = turn.text
@@ -197,7 +205,7 @@ async def _llm_loop(db: Session, ctx: TenantContext, state: CopilotState, run_id
                 content = json.dumps({"status": "queued_for_user_approval"})
             else:
                 if on_step:
-                    await on_step({"tool": call.name, "state": "running"})
+                    await on_step({"tool": call.name, "state": "running"})  # also tells the UI to discard any streamed preamble
                 r = await _mcp_call(call.name, call.args)
                 obs.append({"tool": call.name, "args": call.args, "result": r})
                 content = json.dumps(r, default=str)[:20000]
