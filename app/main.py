@@ -22,7 +22,7 @@ from app.api.v1 import tenders as tenders_api
 from app.core import ratelimit
 from app.core.config import get_settings
 from app.core.errors import AppError, RateLimited, Unauthenticated
-from app.core.logging import configure_logging, get_logger, request_id_var
+from app.core.logging import configure_logging, get_logger, redact_path, request_id_var
 from app.db.session import get_engine, session_scope
 from app.mcp.server.app import mcp_server
 from app.storage.backend import LocalStorage, get_storage
@@ -90,7 +90,7 @@ async def request_context(request: Request, call_next):
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
         response.headers["Cache-Control"] = "no-store"
     if not path.startswith(("/_nicegui", "/static")):
-        log.info("http", method=request.method, path=path, status=response.status_code, ms=int((time.monotonic() - started) * 1000))
+        log.info("http", method=request.method, path=redact_path(path), status=response.status_code, ms=int((time.monotonic() - started) * 1000))
     return response
 
 

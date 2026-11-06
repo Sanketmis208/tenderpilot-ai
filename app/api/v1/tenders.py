@@ -6,17 +6,21 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.auth.context import TenantContext
 from app.auth.deps import ctx_dep
 from app.auth.permissions import Perm
+from app.core import ratelimit
+from app.core.config import get_settings
 from app.db.session import get_db
+from app.integrations import email_alerts
 from app.integrations.sources import SOURCES
 from app.schemas import api as s
 from app.services.eligibility import service as elig
 from app.services.evidence import graph as evgraph
+from app.services.tenders import feeds as feedsvc
 from app.services.tenders import lifecycle, matching
 from app.services.tenders import service as tenders
 
@@ -73,6 +77,90 @@ async def import_feed(key: str, file: UploadFile | None = File(None), ctx: Tenan
     payload = await file.read(5 * 1024 * 1024) if file else None
     created = tenders.import_feed(db, ctx, key, payload)
     return {"created": [str(t.id) for t in created]}
+
+
+@router.get("/tender-feeds")
+def list_feeds(ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    return [feedsvc.feed_view(c) for c in feedsvc.list_feeds(db, ctx)]
+
+
+@router.post("/tender-feeds", status_code=201)
+def create_feed(body: s.TenderFeedIn, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    c = feedsvc.create_feed(db, ctx, name=body.name, url=body.url, fmt=body.format, poll_minutes=body.poll_minutes,
+                            auth_header_name=body.auth_header_name, auth_header_value=body.auth_header_value,
+                            licence_note=body.licence_note, field_map=body.field_map)
+    return feedsvc.feed_view(c)
+
+
+@router.post("/tender-feeds/{feed_id}/poll")
+def poll_feed(feed_id: uuid.UUID, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    res = feedsvc.poll_feed(db, ctx, feed_id)
+    return {**res.summary(), "tender_ids": [str(t.id) for t in res.created]}
+
+
+@router.post("/tender-feeds/{feed_id}/pause")
+def pause_feed(feed_id: uuid.UUID, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    return feedsvc.feed_view(feedsvc.set_feed_enabled(db, ctx, feed_id, False))
+
+
+@router.post("/tender-feeds/{feed_id}/resume")
+def resume_feed(feed_id: uuid.UUID, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    return feedsvc.feed_view(feedsvc.set_feed_enabled(db, ctx, feed_id, True))
+
+
+@router.delete("/tender-feeds/{feed_id}", status_code=204)
+def delete_feed(feed_id: uuid.UUID, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    feedsvc.delete_feed(db, ctx, feed_id)
+
+
+@router.get("/email-alerts")
+def email_alerts_settings(ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    return feedsvc.email_view(feedsvc.email_settings(db, ctx))
+
+
+@router.post("/email-alerts/enable")
+def enable_email_alerts(body: s.EmailAlertsIn, request: Request, ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    """Creates or rotates the private inbound address. The token is shown once."""
+    _c, token = feedsvc.enable_email_alerts(db, ctx, body.allowed_sender_domains)
+    return {"inbound_url": f"{get_settings().base_url.rstrip('/')}/api/v1/inbound/email/{token}", "token_shown_once": True}
+
+
+@router.post("/email-alerts/disable", status_code=204)
+def disable_email_alerts(ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    feedsvc.disable_email_alerts(db, ctx)
+
+
+@router.post("/email-alerts/upload", status_code=201)
+async def upload_alert_email(file: UploadFile = File(...), ctx: TenantContext = Depends(ctx_dep), db: Session = Depends(get_db)):
+    raw = await file.read(email_alerts.MAX_EMAIL_BYTES + 1)
+    alert, res = feedsvc.ingest_email(db, ctx, raw, channel="upload")
+    return {"portal": alert.portal, **res.summary(), "tender_ids": [str(t.id) for t in res.created]}
+
+
+@router.post("/inbound/email/{token}", include_in_schema=False)
+async def inbound_email(token: str, request: Request, db: Session = Depends(get_db)):
+    """Inbound-email webhook (unauthenticated; the unguessable token in the path is the credential).
+
+    Accepts the raw RFC 822 message as the request body (``message/rfc822`` or ``text/plain``), or a multipart form
+    with the raw message in a field named ``email``, ``body-mime`` or ``message`` (the shapes common inbound-mail
+    services post)."""
+    ratelimit.hit(f"inbound:{token[:12]}", 60)
+    ctype = request.headers.get("content-type", "")
+    raw = b""
+    if ctype.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):
+        form = await request.form()
+        for key in ("email", "body-mime", "message"):
+            v = form.get(key)
+            if v is not None:
+                raw = await v.read(email_alerts.MAX_EMAIL_BYTES + 1) if hasattr(v, "read") else str(v).encode()
+                break
+    else:
+        async for chunk in request.stream():
+            raw += chunk
+            if len(raw) > email_alerts.MAX_EMAIL_BYTES:
+                break
+    res = feedsvc.receive_inbound(db, token, raw)
+    return {"accepted": True, **res.summary()}
 
 
 @router.post("/tenders/{tender_id}/transition", response_model=s.TenderOut)

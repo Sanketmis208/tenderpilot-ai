@@ -45,7 +45,8 @@ def tender_list(request: Request):
     with shell(request, "/tenders") as pc:
         if not pc:
             return
-        state = {"q": "", "status": None, "sort": "deadline", "page": 0}
+        qs_status = request.query_params.get("status")
+        state = {"q": "", "status": qs_status if qs_status in {s.value for s in TenderStatus} else None, "sort": "deadline", "page": 0}
         with page_header("My Tenders", "Every tender you've imported — with deadlines, value and where it is in your pipeline."):
             if pc.can(Perm.TENDERS_WRITE):
                 ui.button("Add tender", icon="add", on_click=lambda: new_dialog.open()).props("unelevated color=primary")
@@ -53,7 +54,7 @@ def tender_list(request: Request):
             q = ui.input(placeholder="Search title, reference, organization").props("outlined dense clearable").classes("col").style("min-width:240px")
             with q.add_slot("prepend"):
                 ui.icon("search", size="18px").style("color:#98A2B3")
-            st = ui.select({None: "All statuses", **{s.value: s.value.replace("_", " ").capitalize() for s in TenderStatus}}, value=None).props("outlined dense").style("width:220px")
+            st = ui.select({None: "All statuses", **{s.value: s.value.replace("_", " ").capitalize() for s in TenderStatus}}, value=state["status"]).props("outlined dense").style("width:220px")
             so = ui.select({"deadline": "Sort: Deadline", "value": "Sort: Value", "newest": "Sort: Newest", "title": "Sort: Title"}, value="deadline").props("outlined dense").style("width:170px")
 
         @ui.refreshable
@@ -162,6 +163,9 @@ def tender_list(request: Request):
                             ui.navigate.to(f"/tenders/{res[0].id}")
                     ui.button("Import", icon="link", on_click=do_url).props("unelevated color=primary").classes("self-start")
                 with ui.tab_panel(t_feed):
+                    ui.label("Tenders can also arrive automatically from licensed feeds and your portal email alerts. "
+                             "Set them up in Settings → Tender feeds & email alerts.").classes("tp-muted")
+                    ui.link("Open feed settings", "/settings").classes("tp-link")
                     for key, src in SOURCES.items():
                         with ui.row().classes("w-full items-center justify-between tp-row-line no-wrap gap-3"):
                             with ui.column().classes("gap-0 col"):
@@ -170,11 +174,14 @@ def tender_list(request: Request):
                             if src.supported:
                                 async def feed_upload(e, key=key):
                                     data = await e.file.read()
-                                    res = run(lambda db: tenders.import_feed(db, pc.ctx, key, data), success="Feed imported")
+                                    res = run(lambda db: tenders.import_feed(db, pc.ctx, key, data))
                                     if res is not None:
-                                        ui.notify(f"{len(res)} tender(s) added", type="positive")
+                                        ui.notify(f"{len(res)} new tender(s) added" if res else "No new tenders: everything in the file is already known",
+                                                  type="positive" if res else "info")
                                         table.refresh()
-                                ui.upload(label="CSV", auto_upload=True, on_upload=feed_upload).props("accept=.csv flat dense").style("width:180px")
+                                accept = getattr(src, "accept", ".csv")
+                                label = {"csv_feed": "CSV", "feed_file": "Feed file", "email_alert": ".eml"}.get(key, "File")
+                                ui.upload(label=label, auto_upload=True, on_upload=feed_upload).props(f"accept={accept} flat dense").style("width:180px")
                             else:
                                 ui.badge("Not supported", color="grey-6").classes("tp-chip")
         if request.query_params.get("new"):

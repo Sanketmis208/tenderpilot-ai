@@ -628,6 +628,7 @@ def settings_page(request: Request):
                                 ui.label(c.name).classes("text-weight-medium").style("color:#101828")
                                 ui.label(c.description).classes("tp-caption")
                             ui.badge("Available" if c.available() else "Not configured", color="positive" if c.available() else "grey-6").classes("tp-chip")
+                _feeds_card(pc)
                 if pc.can(Perm.ORG_DELETE):
                     with ui.card().classes("tp-card tp-panel w-full").props("flat").style("border-color:#FECDCA;background:#FFFBFA"):
                         with ui.row().classes("items-center gap-3 no-wrap"):
@@ -638,6 +639,116 @@ def settings_page(request: Request):
 
 
 _ = (Decimal, format_inr_short)
+
+
+FEED_STATUS_COLOR = {"active": "positive", "paused": "grey-6", "error": "negative"}
+
+
+def _feeds_card(pc):
+    """Licensed / open-data feed subscriptions and the portal email-alert inbound address."""
+    from app.services.tenders import feeds as feedsvc
+
+    manage = pc.can(Perm.INTEGRATIONS_MANAGE)
+
+    @ui.refreshable
+    def body():
+        with session_scope() as db:
+            rows = [feedsvc.feed_view(c) for c in feedsvc.list_feeds(db, pc.ctx)]
+            mail = feedsvc.email_view(feedsvc.email_settings(db, pc.ctx))
+        ui.label("Feeds").classes("text-weight-medium q-mt-xs").style("color:#101828")
+        if not rows:
+            ui.label("No feeds yet. Add a licensed provider's feed URL or an open-data OCDS publication.").classes("tp-caption")
+        for f in rows:
+            with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line gap-3"):
+                with ui.column().classes("gap-0 col").style("min-width:0"):
+                    ui.label(f["name"]).classes("text-weight-medium").style("color:#101828")
+                    last = f["last_result"] or {}
+                    meta = f"{f['format'].upper()} · every {f['poll_minutes']} min · " + (
+                        f"last sync {f['last_sync_at'][:16].replace('T', ' ')} UTC: {last.get('created', 0)} new, {last.get('duplicates', 0)} already known"
+                        if f["last_sync_at"] else "not synced yet")
+                    ui.label(meta).classes("tp-caption")
+                    if f["last_error"]:
+                        ui.label(f["last_error"]).classes("text-caption").style("color:#B42318")
+                ui.badge(f["status"], color=FEED_STATUS_COLOR.get(f["status"], "grey-6")).classes("tp-chip")
+                fid = parse_uuid(f["id"])
+
+                def poll(fid=fid):
+                    res = run(lambda db: feedsvc.poll_feed(db, pc.ctx, fid))
+                    if res is not None:
+                        ui.notify(f"{len(res.created)} new tender(s), {res.duplicates} already known", type="positive")
+                    body.refresh()
+                ui.button(icon="sync", on_click=poll).props("flat round dense").tooltip("Poll now")
+                if manage:
+                    paused = f["status"] == "paused"
+                    ui.button(icon="play_arrow" if paused else "pause",
+                              on_click=lambda fid=fid, paused=paused: run(lambda db: feedsvc.set_feed_enabled(db, pc.ctx, fid, paused), refresh=body.refresh)
+                              ).props("flat round dense").tooltip("Resume" if paused else "Pause")
+                    ui.button(icon="delete_outline", on_click=lambda fid=fid: run(lambda db: feedsvc.delete_feed(db, pc.ctx, fid), success="Feed removed", refresh=body.refresh)
+                              ).props("flat round dense color=negative").tooltip("Remove")
+        if manage:
+            with ui.expansion("Add a feed", icon="add").classes("w-full").style("border:1px solid #EAECF0"):
+                name = ui.input("Name (e.g. provider or dataset)").props("outlined dense").classes("w-full")
+                url = ui.input("Feed URL (https)").props("outlined dense").classes("w-full")
+                with ui.row().classes("w-full gap-2 no-wrap"):
+                    fmt = ui.select({"auto": "Detect automatically", "ocds": "OCDS (JSON)", "rss": "RSS / Atom", "json": "JSON list", "csv": "CSV"},
+                                    value="auto", label="Format").props("outlined dense").classes("col")
+                    every = ui.select({m: (f"{m} min" if m < 60 else f"{m // 60} h") for m in feedsvc.POLL_CHOICES}, value=60,
+                                      label="Check every").props("outlined dense").classes("col")
+                with ui.row().classes("w-full gap-2 no-wrap"):
+                    hname = ui.input("Auth header (optional)", value="Authorization").props("outlined dense").classes("col")
+                    hval = ui.input("Header value", password=True, password_toggle_button=True).props("outlined dense").classes("col")
+                lic = ui.input("Licence / terms note (optional)").props("outlined dense").classes("w-full")
+                ui.label("Only add feeds you are licensed or permitted to use. Values are fetched over https and stored as discovered tenders.").classes("tp-caption")
+
+                def add():
+                    ok = run(lambda db: feedsvc.create_feed(db, pc.ctx, name=name.value or "", url=url.value or "", fmt=fmt.value, poll_minutes=int(every.value),
+                                                           auth_header_name=hname.value or None, auth_header_value=hval.value or None,
+                                                           licence_note=lic.value or None), success="Feed added")
+                    if ok is not None:
+                        body.refresh()
+                ui.button("Add feed", on_click=add).props("unelevated color=primary dense").classes("self-end")
+
+        ui.separator().classes("q-my-sm")
+        ui.label("Portal email alerts").classes("text-weight-medium").style("color:#101828")
+        ui.label("Subscribe to CPPP, GeM or state-portal alerts with your own portal account, then forward those emails to your private "
+                 "address below (most mail services can auto-forward). Each tender reference in an alert becomes a discovered tender.").classes("tp-caption")
+        if mail.get("enabled"):
+            last = mail.get("last_result") or {}
+            ui.label(f"Enabled · address ends …{mail.get('token_hint')}" + (f" · last alert {mail['last_received_at'][:16].replace('T', ' ')} UTC: "
+                     f"{last.get('created', 0)} new" if mail.get("last_received_at") else " · no alerts received yet")).classes("tp-caption")
+            if mail.get("allowed_sender_domains"):
+                ui.label("Accepted senders: " + ", ".join(mail["allowed_sender_domains"])).classes("tp-caption")
+        else:
+            ui.label("Not enabled.").classes("tp-caption")
+        if manage:
+            senders = ui.input("Accept alerts only from these sender domains (optional, comma separated)",
+                               value=", ".join(mail.get("allowed_sender_domains") or [])).props("outlined dense").classes("w-full")
+
+            def enable():
+                doms = [d for d in (senders.value or "").replace(";", ",").split(",") if d.strip()]
+                res = run(lambda db: feedsvc.enable_email_alerts(db, pc.ctx, doms))
+                if res is None:
+                    return
+                addr_input.value = f"{get_settings().base_url.rstrip('/')}/api/v1/inbound/email/{res[1]}"
+                addr_dialog.open()
+                body.refresh()
+            with ui.row().classes("gap-2"):
+                ui.button("Generate new address" if mail.get("enabled") else "Enable email alerts", icon="alternate_email", on_click=enable).props("outline color=primary dense")
+                if mail.get("enabled"):
+                    ui.button("Disable", on_click=lambda: run(lambda db: feedsvc.disable_email_alerts(db, pc.ctx), success="Email alerts disabled", refresh=body.refresh)).props("flat dense color=negative")
+
+    # Outside the refreshable body, so refreshing the panel cannot delete the dialog that shows the one-time address.
+    with ui.dialog() as addr_dialog, ui.card().classes("tp-card").style("max-width:640px"):
+        ui.label("Your private inbound address").classes("tp-h2")
+        ui.label("Copy it now. It is shown only once. Point your mail service's inbound webhook (raw MIME) at it, "
+                 "or use it with an email-to-webhook forwarder. Anyone with this address can add discovered tenders, so keep it private; "
+                 "generating a new one disables the old one.").classes("tp-caption")
+        addr_input = ui.input().props("outlined dense readonly").classes("w-full")
+        ui.button("Done", on_click=lambda: (addr_input.set_value(""), addr_dialog.close())).props("unelevated color=primary").classes("self-end")
+
+    with panel("Tender feeds & email alerts", "Authorised ways for tenders to arrive automatically. TenderPilot never scrapes portals, "
+               "logs in for you or solves CAPTCHAs.", icon="rss_feed"):
+        body()
 
 
 def _template_card(pc, osettings):

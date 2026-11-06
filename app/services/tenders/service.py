@@ -118,20 +118,15 @@ def import_feed(db: Session, ctx: TenantContext, source_key: str, payload: bytes
     src = SOURCES.get(source_key)
     if not src:
         raise NotFound("Unknown source.")
-    created = []
-    for st in src.fetch(payload):
-        if st.reference_number and db.scalar(select(Tender.id).where(Tender.organization_id == ctx.organization_id, Tender.reference_number == st.reference_number, Tender.deleted_at.is_(None))):
-            continue
-        t = create_tender(db, ctx, {
-            "title": st.title, "reference_number": st.reference_number, "procuring_organization": st.procuring_organization,
-            "source_url": st.source_url, "estimated_value": st.estimated_value, "location_state": st.location_state,
-            "submission_deadline": st.submission_deadline, "category": st.category, "description": st.description,
-            "source_platform": src.name,
-        })
-        t.status = TenderStatus.DISCOVERED
-        created.append(t)
-    audit.record(db, "tender.feed_imported", ctx=ctx, data={"source": source_key, "count": len(created)})
-    return created
+    if source_key == "email_alert" and payload:
+        from app.services.tenders import feeds
+
+        return feeds.ingest_email(db, ctx, payload, channel="upload")[1].created
+    from app.services.tenders.feeds import ingest
+
+    res = ingest(db, ctx, src.fetch(payload), source_name=src.name)
+    audit.record(db, "tender.feed_imported", ctx=ctx, data={"source": source_key, "count": len(res.created), "duplicates": res.duplicates})
+    return res.created
 
 
 def get_tender(db: Session, ctx: TenantContext, tender_id: uuid.UUID) -> Tender:

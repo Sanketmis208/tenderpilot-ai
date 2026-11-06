@@ -30,6 +30,8 @@ class SourceTender:
     category: str | None = None
     description: str | None = None
     keywords: list[str] = field(default_factory=list)
+    external_id: str | None = None  # feed guid / OCDS ocid / email-derived id, used for de-duplication
+    source_platform: str | None = None  # portal the item came from (e.g. "GeM"), when the source can tell
 
 
 class TenderSource(Protocol):
@@ -47,8 +49,9 @@ class UnsupportedPortal:
     def __init__(self, key: str, name: str):
         self.key, self.name = key, name
         self.status_note = (
-            f"No authorised API or licensed feed is configured for {name}. TenderPilot does not scrape portals, "
-            "bypass CAPTCHAs or log in on your behalf. Download the tender from the portal and upload it, or use a CSV feed."
+            f"{name} has no official public API, and TenderPilot does not scrape portals, bypass CAPTCHAs or log in on your "
+            "behalf. To receive its tenders automatically, forward the portal's own email alerts (Settings → Tender feeds & "
+            "email alerts) or subscribe to a licensed data provider's feed."
         )
 
     def fetch(self, payload: bytes | None = None) -> list[SourceTender]:
@@ -93,8 +96,40 @@ class CsvFeedSource:
         return out
 
 
+class FeedFileSource:
+    """A downloaded feed file in any supported structured format (auto-detected)."""
+
+    key, name, supported = "feed_file", "Feed file (OCDS, RSS/Atom, JSON, CSV)", True
+    status_note = "Upload an export from a licensed provider, an open-data OCDS release package, or an RSS/Atom file."
+    accept = ".json,.xml,.rss,.atom,.csv"
+
+    def fetch(self, payload: bytes | None = None) -> list[SourceTender]:
+        from app.integrations.feeds import parse_feed
+
+        if not payload:
+            raise ValidationFailed("Feed file required.")
+        return parse_feed(payload)
+
+
+class EmailAlertSource:
+    """A portal alert email saved as .eml (or its text pasted into a .txt file)."""
+
+    key, name, supported = "email_alert", "Portal alert email (.eml)", True
+    status_note = "Upload a CPPP, GeM or state-portal alert email. Each tender reference in it becomes a discovered tender."
+    accept = ".eml,.txt,.html"
+
+    def fetch(self, payload: bytes | None = None) -> list[SourceTender]:
+        from app.integrations.email_alerts import parse_alert_email
+
+        if not payload:
+            raise ValidationFailed("Email file required.")
+        return parse_alert_email(payload).tenders
+
+
 SOURCES: dict[str, TenderSource] = {
     "csv_feed": CsvFeedSource(),
+    "feed_file": FeedFileSource(),
+    "email_alert": EmailAlertSource(),
     "cppp": UnsupportedPortal("cppp", "Central Public Procurement Portal (CPPP)"),
     "gem": UnsupportedPortal("gem", "Government e-Marketplace (GeM)"),
     "state_portal": UnsupportedPortal("state_portal", "State e-procurement portals"),

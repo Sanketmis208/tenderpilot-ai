@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Synthetic licensed tender feed</title>
+    <item>
+      <title>Design, supply and erection of 132kV substation (GEM/2026/B/9100001)</title>
+      <link>https://bidplus.gemportal.in/showbidDocument/9100001</link>
+      <guid>provider-item-9100001</guid>
+      <description><![CDATA[<p>Bid End Date: 10-12-2026 15:00</p><p>Estimated Value: Rs. 4.2 Crore</p>]]></description>
+      <category>Electrical works</category>
+    </item>
+    <item>
+      <title>Repair of pump house roof</title>
+      <link>https://example.org/synthetic/tenders/42</link>
+      <guid>provider-item-42</guid>
+      <description>Closing Date: 15/12/2026</description>
+    </item>
+  </channel>
+</rss>

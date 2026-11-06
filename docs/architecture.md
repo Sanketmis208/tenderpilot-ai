@@ -51,6 +51,15 @@ flowchart LR
 
 ## Key flows
 
+**Tender discovery** — CPPP, GeM and state portals have no official public API, and TenderPilot does not scrape them.
+Tenders arrive automatically through authorised channels only: feed subscriptions (`app/services/tenders/feeds.py`,
+stored as `integration_connections` rows with `provider='tender_feed'`) polled by the `tp.scheduled.poll_feeds` beat
+task through the SSRF-hardened fetcher and parsed by `app/integrations/feeds.py` (OCDS, RSS/Atom, JSON, CSV); and the
+organization's own portal alert emails (`app/integrations/email_alerts.py`), uploaded as `.eml` or posted to a private
+inbound URL. Both paths share `feeds.ingest`: de-duplication by reference number, then source item id, then URL; new
+tenders are `discovered`, match scores are recomputed and bid managers are notified. Background polling acts as the
+member who created the feed, with their current role.
+
 **Document ingestion** — upload → content-type sniffing + size/quota checks + heuristic threat scan + ClamAV (when
 configured) → (ZIP: safe
 expansion) → object stored under `org/<org_id>/<scope>/<uuid>/<name>` → `documents` + immutable `document_versions` row →

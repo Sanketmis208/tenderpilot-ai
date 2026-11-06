@@ -248,6 +248,23 @@ class UrlImportIn(BaseModel):
     tender_id: uuid.UUID | None = None
 
 
+class TenderFeedIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    url: str = Field(max_length=2000)
+    format: str = "auto"
+    poll_minutes: int = 60
+    auth_header_name: str | None = Field(None, max_length=64)
+    auth_header_value: str | None = Field(None, max_length=2000)
+    licence_note: str | None = Field(None, max_length=300)
+    field_map: dict[str, list[str]] | None = None
+
+
+class EmailAlertsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    allowed_sender_domains: list[str] = Field(default_factory=list, max_length=20)
+
+
 class RequirementOut(ORM):
     id: uuid.UUID
     code: str

@@ -33,5 +33,7 @@ celery_app.conf.update(
         "retry-email-deliveries": {"task": "tp.scheduled.retry_emails", "schedule": crontab(minute="*/15")},
         "purge-deleted-organizations": {"task": "tp.scheduled.purge_orgs", "schedule": crontab(hour=2, minute=0)},
         "requeue-stuck-jobs": {"task": "tp.scheduled.requeue_stuck", "schedule": crontab(minute="*/10")},
+        # Each feed has its own interval (15 min to 24 h); this only checks which ones are due.
+        "poll-tender-feeds": {"task": "tp.scheduled.poll_feeds", "schedule": crontab(minute="*/15")},
     },
 )

@@ -69,15 +69,20 @@ def validate_url(url: str) -> tuple[str, str, int]:
     return host, ips[0], port
 
 
-def fetch(url: str) -> Fetched:
+def fetch(url: str, *, headers: dict[str, str] | None = None, user_agent: str = "TenderPilotAI-URLImport/1.0") -> Fetched:
+    """`headers` (e.g. a feed provider's Authorization header) are sent to the first host only, never across a
+    redirect to another host."""
     s = get_settings()
     current = url
+    first_host = None
     for _ in range(4):
         host, ip, port = validate_url(current)
+        first_host = first_host or host
         parts = urlsplit(current)
         # Pin to the vetted address; keep Host/SNI as the original hostname.
         target = parts._replace(netloc=f"{'[' + ip + ']' if ':' in ip else ip}:{port}").geturl()
-        with httpx.Client(timeout=20, follow_redirects=False, verify=True) as client, client.stream("GET", target, headers={"Host": host, "User-Agent": "TenderPilotAI-URLImport/1.0"},
+        hdrs = {**(headers or {} if host == first_host else {}), "Host": host, "User-Agent": user_agent}
+        with httpx.Client(timeout=20, follow_redirects=False, verify=True) as client, client.stream("GET", target, headers=hdrs,
                            extensions={"sni_hostname": host}) as resp:
             if resp.status_code in (301, 302, 303, 307, 308):
                 loc = resp.headers.get("location")

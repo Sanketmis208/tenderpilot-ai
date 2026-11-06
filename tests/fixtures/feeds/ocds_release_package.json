@@ -1,0 +1,43 @@
+{
+  "uri": "https://example.org/synthetic/ocds/package.json",
+  "publishedDate": "2026-11-01T00:00:00Z",
+  "version": "1.1",
+  "releases": [
+    {
+      "ocid": "ocds-synth-0001",
+      "id": "ocds-synth-0001-01",
+      "date": "2026-11-01T10:00:00+05:30",
+      "tag": ["tender"],
+      "buyer": {"id": "ORG-1", "name": "Demo State Power Distribution Co."},
+      "parties": [{"id": "ORG-1", "name": "Demo State Power Distribution Co.", "address": {"region": "Assam"}}],
+      "tender": {
+        "id": "2026_DEMOA_111111_1",
+        "title": "Supply of 33kV outdoor vacuum circuit breakers",
+        "description": "Supply, testing and commissioning of 33kV VCBs (synthetic sample).",
+        "value": {"amount": 18500000, "currency": "INR"},
+        "tenderPeriod": {"endDate": "2026-12-05T15:00:00+05:30"},
+        "mainProcurementCategory": "goods",
+        "documents": [{"id": "d1", "url": "https://example.org/synthetic/nit-111111.pdf"}]
+      }
+    },
+    {
+      "ocid": "ocds-synth-0001",
+      "id": "ocds-synth-0001-02",
+      "date": "2026-11-03T10:00:00+05:30",
+      "tag": ["tenderAmendment"],
+      "buyer": {"id": "ORG-1", "name": "Demo State Power Distribution Co."},
+      "tender": {
+        "id": "2026_DEMOA_111111_1",
+        "title": "Supply of 33kV outdoor vacuum circuit breakers",
+        "value": {"amount": 18500000, "currency": "INR"},
+        "tenderPeriod": {"endDate": "2026-12-12T15:00:00+05:30"}
+      }
+    },
+    {
+      "ocid": "ocds-synth-0002",
+      "id": "ocds-synth-0002-01",
+      "tag": ["award"],
+      "awards": [{"id": "a1", "value": {"amount": 100}}]
+    }
+  ]
+}

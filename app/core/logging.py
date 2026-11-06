@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from collections.abc import MutableMapping
 from contextvars import ContextVar
@@ -30,8 +31,28 @@ def _redact(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> MutableMap
     return event_dict
 
 
+_SECRET_PATH = re.compile(r"(/inbound/email/)[^\s/?\"]+")
+
+
+def redact_path(path: str) -> str:
+    """Inbound-email URLs carry their credential in the path; never write it to logs."""
+    return _SECRET_PATH.sub(r"\1[redacted]", path)
+
+
+class _RedactPathFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.args and isinstance(record.args, tuple):
+            record.args = tuple(redact_path(a) if isinstance(a, str) else a for a in record.args)
+        elif isinstance(record.msg, str):
+            record.msg = redact_path(record.msg)
+        return True
+
+
 def configure_logging(level: str = "INFO", json: bool = False) -> None:
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=level.upper())
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, _RedactPathFilter) for f in access.filters):
+        access.addFilter(_RedactPathFilter())
     renderer = structlog.processors.JSONRenderer() if json else structlog.dev.ConsoleRenderer(colors=False)
     structlog.configure(
         processors=[

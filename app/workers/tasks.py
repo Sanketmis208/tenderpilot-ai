@@ -72,6 +72,15 @@ def purge_orgs() -> int:
         return n
 
 
+@celery_app.task(name="tp.scheduled.poll_feeds")
+def poll_feeds() -> dict:
+    """Poll licensed / open-data tender feeds whose interval has elapsed (never portal scraping)."""
+    from app.services.tenders.feeds import poll_due_feeds
+
+    with session_scope() as db:
+        return poll_due_feeds(db)
+
+
 @celery_app.task(name="tp.maintenance.reindex", queue="ai")
 def reindex_embeddings(org_id: str | None = None, full: bool = False) -> dict:
     """Incremental re-embedding after an embedding-model change (`tenderpilot reindex` runs the same code)."""

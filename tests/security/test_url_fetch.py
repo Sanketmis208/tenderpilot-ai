@@ -87,3 +87,12 @@ def test_allowlist(fake_net, monkeypatch):
     assert url_fetch.validate_url("https://tenders.example.gov.in/x")[1] == "8.8.8.8"
     with pytest.raises(ValidationFailed, match="allowlist"):
         url_fetch.validate_url("https://cdn.example.org/x")
+
+
+def test_feed_auth_header_is_not_forwarded_to_another_host(fake_net):
+    routes, seen = fake_net
+    routes["tenders.example.gov.in/feed"] = httpx.Response(302, headers={"location": "https://cdn.example.org/feed.xml"})
+    routes["cdn.example.org/feed.xml"] = httpx.Response(200, content=b"<rss/>")
+    url_fetch.fetch("https://tenders.example.gov.in/feed", headers={"Authorization": "Bearer secret"}, user_agent="TenderPilotAI-FeedSync/1.0")
+    assert seen[0].headers["authorization"] == "Bearer secret"
+    assert "authorization" not in seen[1].headers and seen[1].headers["user-agent"] == "TenderPilotAI-FeedSync/1.0"

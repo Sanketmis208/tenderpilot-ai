@@ -8,7 +8,16 @@
    *Facts available to eligibility checks* confirm correct extractions or reject wrong ones. To renew a certificate,
    open it and *Upload new version*; earlier assessments keep the version they used.
 4. **Add a tender** — *My Tenders → Add tender*: upload the NIT/RFP, annexures, BOQ (XLSX) or a ZIP; or enter details
-   manually; or import a URL you are authorised to download; or upload a CSV feed. Processing progress is live.
+   manually; or import a URL you are authorised to download; or upload a feed file (CSV, OCDS JSON, RSS/Atom, JSON)
+   or a saved portal alert email (`.eml`). Processing progress is live.
+   To have tenders arrive on their own, go to *Settings → Tender feeds & email alerts*:
+   * **Feeds**: add the https URL of a licensed data provider's feed or an open-data OCDS publication (with an
+     optional auth header, stored encrypted). It is checked every 15 minutes to 24 hours.
+   * **Portal email alerts**: subscribe to CPPP, GeM or state-portal alerts with your own portal account, click
+     *Enable email alerts*, copy the private address (shown once) and have your mail service forward the alerts to
+     it. You can restrict accepted sender domains.
+   New items appear as *Discovered* tenders (duplicates are skipped by reference number), match scores are recomputed,
+   and bid managers get a notification. Open one and upload its documents to run extraction and eligibility.
 5. **Review requirements** — every condition shows the verbatim clause, page and extraction confidence. *Confirm*,
    *Edit* the interpretation (the clause is kept) or *Reject* non-requirements.
 6. **Run eligibility check** — results per requirement: verified, not satisfied, insufficient evidence, conflicting

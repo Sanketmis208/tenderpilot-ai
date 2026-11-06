@@ -1,0 +1,24 @@
+From: GeM Alerts <alerts@gem.gov.in>
+To: bids@voltedge.example
+Subject: New bids matching your categories
+Date: Thu, 05 Nov 2026 09:30:00 +0530
+Message-ID: <gem-alert-20261105-001@gem.gov.in>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset=utf-8
+
+New bids are available. View them on GeM.
+
+--b1
+Content-Type: text/html; charset=utf-8
+
+<html><body><p>Dear Seller, the following bids match your categories (synthetic sample):</p>
+<table>
+<tr><th>Bid No</th><th>Items</th><th>Department</th><th>Bid End Date</th></tr>
+<tr><td><a href="https://bidplus.gemportal.in/showbidDocument/9000001">GEM/2026/B/9000001</a></td><td>LT Distribution Panel 415V with ACB</td><td>Ministry of Power, Demo Discom Ltd</td><td>25-11-2026 15:00:00</td></tr>
+<tr><td><a href="https://bidplus.gemportal.in/showbidDocument/9000002">GEM/2026/B/9000002</a></td><td>LED Street Light 90W</td><td>Demo Municipal Corporation</td><td>28-11-2026 18:00:00</td></tr>
+</table></body></html>
+
+--b1--
