@@ -27,9 +27,13 @@ from app.services import audit
 from app.services.documents import service as documents
 from app.ui.components.common import download_button, upload_box
 from app.ui.layouts.shell import run, shell
-from app.ui.themes.theme import empty_state
+from app.ui.themes.theme import empty_state, page_header, panel
 
 CATS = {c.value: c.value.replace("_", " ").capitalize() for c in DocumentCategory}
+_CAT_HINTS = {"iso": "workspace_premium", "certif": "workspace_premium", "financ": "account_balance", "turnover": "account_balance", "balance": "account_balance",
+              "gst": "receipt_long", "pan": "badge", "registr": "badge", "msme": "storefront", "udyam": "storefront", "complet": "task_alt", "work_order": "assignment",
+              "experience": "task_alt", "catalog": "menu_book", "brochure": "menu_book", "tender": "gavel", "boq": "table_view", "power": "draw", "auth": "draw"}
+CAT_ICON = {c: next((icon for k, icon in _CAT_HINTS.items() if k in c), "description") for c in CATS}
 
 
 @ui.page("/vault")
@@ -37,8 +41,8 @@ def vault(request: Request):
     with shell(request, "/vault") as pc:
         if not pc:
             return
-        ui.label("Document Vault").classes("tp-h1")
-        ui.label("Your qualification documents. Each file is versioned; assessments always reference the exact version they used.").classes("tp-muted")
+        with page_header("Document Vault", "Your qualification documents. Each file is versioned; assessments always reference the exact version they used."):
+            pass
         flt = {"cat": None, "q": ""}
 
         @ui.refreshable
@@ -48,32 +52,40 @@ def vault(request: Request):
                 data = [(d.id, d.title, d.category, d.category_confidence, d.category_confirmed, v.version_no if v else None, v.processing_status if v else "—",
                          v.expires_on if v else None, v.needs_review if v else False, d.is_synthetic) for d, v in rows]
             if not data:
-                empty_state("folder_open", "No documents yet", "Upload certificates, financial statements, completion certificates and catalogues.")
+                with ui.card().classes("tp-card w-full").props("flat"):
+                    empty_state("folder_open", "No documents yet", "Upload certificates, financial statements, completion certificates and catalogues.")
                 return
-            with ui.grid(columns=3).classes("w-full gap-3"):
+            ui.label(f"{len(data)} document(s)").classes("tp-caption")
+            with ui.element("div").classes("tp-grid-3 w-full"):
                 for did, title, cat, conf, confirmed, vno, status, exp, review, synth in data:
-                    with ui.card().classes("tp-card q-pa-md cursor-pointer").on("click", lambda did=did: ui.navigate.to(f"/vault/{did}")):
-                        with ui.row().classes("w-full justify-between no-wrap"):
-                            ui.label(title).classes("text-weight-medium ellipsis")
-                            ui.badge(f"v{vno}", color="grey-7").props("outline")
-                        ui.label(CATS.get(cat, cat) + ("" if confirmed else f" · auto {conf:.0%}")).classes("text-caption tp-muted")
-                        with ui.row().classes("gap-1 q-mt-xs"):
-                            ui.badge(status, color="positive" if status == "ready" else "warning" if status in ("needs_review", "processing", "pending") else "negative").props("outline")
+                    with ui.card().classes("tp-card tp-panel cursor-pointer").props("flat").style("gap:10px").on("click", lambda did=did: ui.navigate.to(f"/vault/{did}")):
+                        with ui.row().classes("w-full items-start justify-between no-wrap gap-3"):
+                            with ui.row().classes("items-center no-wrap gap-3 col").style("min-width:0"):
+                                ui.icon(CAT_ICON.get(cat, "description")).classes("tp-feature-icon tp-tone-primary").style("width:38px;height:38px;font-size:20px;flex:none")
+                                with ui.column().classes("gap-0 col").style("min-width:0"):
+                                    ui.label(title).classes("text-weight-medium ellipsis w-full").style("color:#101828")
+                                    ui.label(CATS.get(cat, cat) + ("" if confirmed else f" · auto {conf:.0%}")).classes("tp-caption ellipsis w-full")
+                            ui.badge(f"v{vno}", color="grey-7").props("outline").classes("tp-chip")
+                        with ui.row().classes("gap-1"):
+                            ui.badge(status.replace("_", " ").capitalize(), color="positive" if status == "ready" else "warning" if status in ("needs_review", "processing", "pending") else "negative").classes("tp-chip")
                             if review:
-                                ui.badge("confirm fields", color="info")
+                                ui.badge("Confirm fields", color="info").classes("tp-chip")
                             if exp:
                                 from datetime import date
 
-                                ui.badge(("expired " if exp < date.today() else "valid to ") + exp.strftime("%d %b %Y"), color="negative" if exp < date.today() else "grey-7").props("outline")
+                                ui.badge(("Expired " if exp < date.today() else "Valid to ") + exp.strftime("%d %b %Y"), color="negative" if exp < date.today() else "grey-7").props("outline").classes("tp-chip")
                             if synth:
-                                ui.badge("synthetic", color="orange").props("outline")
+                                ui.badge("Synthetic", color="orange").props("outline").classes("tp-chip")
 
-        with ui.row().classes("w-full gap-2"):
-            ui.select({None: "All categories", **CATS}, value=None, on_change=lambda e: (flt.update(cat=e.value), grid.refresh())).props("outlined dense").style("width:260px")
-            s = ui.input(placeholder="Search titles").props("outlined dense clearable").classes("col")
-            s.on("update:model-value", lambda e: (flt.update(q=s.value or ""), grid.refresh()), throttle=0.4)
         if pc.can(Perm.DOCUMENTS_UPLOAD):
-            upload_box(pc, scope="company", on_done=grid.refresh)
+            with panel("Upload documents", "Each file is classified automatically; uncertain fields are flagged for you to confirm.", icon="cloud_upload"):
+                upload_box(pc, scope="company", on_done=grid.refresh)
+        with ui.row().classes("w-full gap-2 items-center"):
+            s = ui.input(placeholder="Search titles").props("outlined dense clearable").classes("col").style("min-width:220px")
+            with s.add_slot("prepend"):
+                ui.icon("search", size="18px").style("color:#98A2B3")
+            s.on("update:model-value", lambda e: (flt.update(q=s.value or ""), grid.refresh()), throttle=0.4)
+            ui.select({None: "All categories", **CATS}, value=None, on_change=lambda e: (flt.update(cat=e.value), grid.refresh())).props("outlined dense").style("width:260px")
         grid()
 
 
@@ -99,53 +111,54 @@ def vault_document(request: Request, document_id: str):
                 ui.label(exc.message).classes("text-negative")
                 return
             title, cat, conf, confirmed, cur = head
-            ui.link("← Document vault", "/vault").classes("tp-link text-caption")
-            with ui.row().classes("w-full items-center justify-between"):
-                ui.label(title).classes("tp-h1")
-                with ui.row():
+            with page_header(title, CATS.get(cat, cat), back=("Document vault", "/vault")):
                     if cur:
                         ui.button("View", icon="visibility", on_click=lambda: ui.navigate.to(f"/viewer/{cur}")).props("outline color=primary")
                         download_button(pc, cur, props="outline color=primary")
                     if pc.can(Perm.DOCUMENTS_MANAGE):
-                        ui.button("Delete", icon="delete", on_click=lambda: confirm_delete()).props("flat color=negative")
-            with ui.row().classes("w-full gap-4 items-start"):
-                with ui.card().classes("tp-card col q-pa-md"):
-                    ui.label("Classification").classes("tp-h2")
-                    ui.label(f"{'Confirmed' if confirmed else f'Detected automatically ({conf:.0%} confidence)'}").classes("text-caption tp-muted")
+                        ui.button("Delete", icon="delete_outline", on_click=lambda: confirm_delete()).props("outline color=negative")
+            with ui.element("div").classes("tp-grid-2 w-full"):
+                with panel("Classification", "Confirmed" if confirmed else f"Detected automatically ({conf:.0%} confidence)", icon="category"):
                     sel = ui.select(CATS, value=cat, label="Category").props("outlined dense").classes("w-full")
                     if pc.can(Perm.DOCUMENTS_UPLOAD):
-                        ui.button("Confirm category", on_click=lambda: run(lambda db: documents.confirm_category(db, pc.ctx, did, sel.value), success="Category confirmed", refresh=body.refresh)).props("dense unelevated color=primary q-mt-sm")
-                    ui.label("Extracted fields").classes("tp-h2 q-mt-md")
+                        ui.button("Confirm category", on_click=lambda: run(lambda db: documents.confirm_category(db, pc.ctx, did, sel.value), success="Category confirmed", refresh=body.refresh)).props("dense unelevated color=primary").classes("self-start")
+                    ui.element("div").classes("tp-divider q-my-xs")
+                    ui.label("Extracted fields").classes("tp-h2")
                     if not fields:
                         ui.label("No metadata fields extracted.").classes("tp-muted")
                     for fid, name, value, fconf, needs, confirmed_at in fields:
-                        with ui.row().classes("w-full items-center justify-between no-wrap"):
-                            ui.label(name.replace("_", " ")).classes("tp-muted")
-                            inp = ui.input(value=value).props("dense outlined").style("width:220px")
+                        with ui.row().classes("w-full items-center justify-between no-wrap gap-2"):
+                            ui.label(name.replace("_", " ").capitalize()).classes("tp-muted col")
+                            inp = ui.input(value=value).props("dense outlined").style("width:240px")
                             if confirmed_at:
                                 ui.icon("verified", color="positive").tooltip("Confirmed by a user")
                             elif pc.can(Perm.DOCUMENTS_UPLOAD):
                                 ui.button(icon="check", on_click=lambda fid=fid, inp=inp: run(lambda db: documents.confirm_field(db, pc.ctx, fid, inp.value), success="Field confirmed", refresh=body.refresh)).props("dense flat color=positive").tooltip(f"Confirm ({fconf:.0%} extraction confidence)")
-                with ui.card().classes("tp-card col q-pa-md"):
-                    ui.label("Facts available to eligibility checks").classes("tp-h2")
-                    ui.label("Document-stated values. Confirm them to raise confidence; reject incorrect extractions.").classes("text-caption tp-muted")
+                with panel("Facts available to eligibility checks", "Document-stated values. Confirm them to raise confidence; reject incorrect extractions.", icon="fact_check"):
                     if not facts:
                         ui.label("No structured facts extracted from this document.").classes("tp-muted")
                     for kind, fid, desc, page, status, fconf in facts:
-                        with ui.row().classes("w-full items-center justify-between no-wrap q-py-xs"):
-                            with ui.column().classes("gap-0 col"):
-                                ui.label(desc).classes("text-body2")
-                                ui.label(f"{kind} · p.{page} · {status} · {fconf:.0%}").classes("text-caption tp-muted")
+                        with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line"):
+                            with ui.column().classes("gap-1 col"):
+                                ui.label(desc).classes("text-body2").style("color:#101828")
+                                with ui.row().classes("items-center gap-2"):
+                                    ui.badge(status.capitalize(), color="positive" if status == "confirmed" else "negative" if status == "rejected" else "grey-7").classes("tp-chip")
+                                    ui.label(f"{kind} · p.{page} · {fconf:.0%} confidence").classes("tp-caption")
                             if pc.can(Perm.DOCUMENTS_UPLOAD) and status == "extracted":
                                 ui.button(icon="check", on_click=lambda kind=kind, fid=fid: run(lambda db: _set_fact(db, pc, kind, fid, FactStatus.CONFIRMED), success="Confirmed", refresh=body.refresh)).props("dense flat color=positive")
                                 ui.button(icon="close", on_click=lambda kind=kind, fid=fid: run(lambda db: _set_fact(db, pc, kind, fid, FactStatus.REJECTED), success="Rejected", refresh=body.refresh)).props("dense flat color=negative")
-            with ui.card().classes("tp-card w-full q-pa-md"):
-                ui.label("Versions").classes("tp-h2")
+            with panel("Versions", f"{len(vers)} version(s) on file", icon="history"):
                 for vid, vno, fname, status, at, sha, exp, iss, pages, method, notes, lang in vers:
-                    with ui.row().classes("w-full items-center justify-between no-wrap q-py-xs").style("border-bottom:1px solid #EEF1F5"):
-                        ui.label(f"v{vno} · {fname}").classes("text-weight-medium" if vid == cur else "")
-                        ui.label(f"{at.astimezone(IST):%d %b %Y %H:%M} · {status} · {pages or '?'} p · {method or ''} · {lang or ''} · sha256 {sha[:10]}…").classes("text-caption tp-muted")
-                        with ui.row():
+                    with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line gap-3"):
+                        with ui.row().classes("items-center no-wrap gap-3 col").style("min-width:0"):
+                            ui.badge(f"v{vno}", color="primary" if vid == cur else "grey-7").classes("tp-chip")
+                            with ui.column().classes("gap-0 col").style("min-width:0"):
+                                with ui.row().classes("items-center gap-2"):
+                                    ui.label(fname).classes("text-weight-medium ellipsis").style("color:#101828")
+                                    if vid == cur:
+                                        ui.badge("Current", color="positive").classes("tp-chip")
+                                ui.label(f"{at.astimezone(IST):%d %b %Y %H:%M} · {status} · {pages or '?'} p · {method or ''} · {lang or ''} · sha256 {sha[:10]}…").classes("tp-caption ellipsis")
+                        with ui.row().classes("no-wrap"):
                             ui.button(icon="visibility", on_click=lambda vid=vid: ui.navigate.to(f"/viewer/{vid}")).props("flat dense")
                             download_button(pc, vid, label="")
                 if pc.can(Perm.DOCUMENTS_UPLOAD):
@@ -153,12 +166,13 @@ def vault_document(request: Request, document_id: str):
                     upload_box(pc, document_id=did, on_done=body.refresh, label="Upload new version")
 
         def confirm_delete():
-            with ui.dialog() as dlg, ui.card():
-                ui.label("Delete this document from the vault?").classes("tp-h2")
+            with ui.dialog() as dlg, ui.card().style("width:440px"):
+                ui.icon("delete_outline").classes("tp-feature-icon tp-tone-rose")
+                ui.label("Delete this document from the vault?").classes("tp-h1").style("font-size:1.2rem")
                 ui.label("It will no longer be used as evidence. Historical assessments keep their snapshot.").classes("tp-muted")
-                with ui.row():
+                with ui.row().classes("w-full justify-end gap-2"):
+                    ui.button("Cancel", on_click=dlg.close).props("outline color=primary")
                     ui.button("Delete", on_click=lambda: (run(lambda db: documents.soft_delete(db, pc.ctx, did), success="Deleted"), dlg.close(), ui.navigate.to("/vault"))).props("unelevated color=negative")
-                    ui.button("Cancel", on_click=dlg.close).props("flat")
             dlg.open()
 
         body()
@@ -206,15 +220,17 @@ def company(request: Request):
                 CompanyFinancialRecord.organization_id == pc.ctx.organization_id, CompanyFinancialRecord.status != FactStatus.SUPERSEDED).order_by(CompanyFinancialRecord.fiscal_year))]
             projects = [(x.title, x.contract_value, x.completion_date) for x in db.scalars(select(CompanyProject).where(
                 CompanyProject.organization_id == pc.ctx.organization_id, CompanyProject.status != FactStatus.SUPERSEDED))]
-        ui.label("Company Profile").classes("tp-h1")
-        with ui.row().classes("w-full gap-4 items-start"):
-            with ui.card().classes("tp-card col q-pa-md"):
-                ui.label("Profile").classes("tp-h2")
+        with page_header("Company Profile", "The facts TenderPilot uses for opportunity matching and eligibility checks."):
+            pass
+        with ui.element("div").classes("w-full").style("display:grid;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));gap:16px;align-items:start"):
+            with panel("Profile", "Business details and registrations", icon="apartment"):
                 f = {}
-                for key, label in [("legal_name", "Legal name"), ("industry", "Industry"), ("business_category", "Business category"), ("gstin", "GSTIN"), ("pan", "PAN"),
-                                   ("cin", "CIN"), ("udyam_number", "Udyam"), ("msme_category", "MSME category"), ("state", "State"), ("address", "Address")]:
-                    f[key] = ui.input(label, value=vals.get(key)).props("outlined dense").classes("w-full")
-                f["year_established"] = ui.number("Year established", value=vals.get("year_established"), format="%d").props("outlined dense").classes("w-full")
+                with ui.element("div").classes("w-full").style("display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px"):
+                    for key, label in [("legal_name", "Legal name"), ("industry", "Industry"), ("business_category", "Business category"), ("gstin", "GSTIN"), ("pan", "PAN"),
+                                       ("cin", "CIN"), ("udyam_number", "Udyam"), ("msme_category", "MSME category"), ("state", "State")]:
+                        f[key] = ui.input(label, value=vals.get(key)).props("outlined dense").classes("w-full")
+                    f["year_established"] = ui.number("Year established", value=vals.get("year_established"), format="%d").props("outlined dense").classes("w-full")
+                f["address"] = ui.input("Address", value=vals.get("address")).props("outlined dense").classes("w-full")
                 for key, label in [("operational_states", "Operational states"), ("capabilities", "Capabilities"), ("product_categories", "Product categories"), ("tender_interests", "Tender interests")]:
                     f[key] = ui.input_chips(label, value=vals.get(key) or []).props("outlined dense").classes("w-full")
 
@@ -229,28 +245,41 @@ def company(request: Request):
                             setattr(prof, k, v or ([] if k in ("operational_states", "capabilities", "product_categories", "tender_interests") else None))
                         audit.record(db, "company.profile_updated", ctx=pc.ctx, subject_type="company_profile", subject_id=prof.id)
                     run(do, success="Profile saved")
-                if pc.can(Perm.COMPANY_WRITE):
-                    ui.button("Save profile", on_click=save).props("unelevated color=primary")
-                ui.label("Identifiers are document-stated or user-entered and not verified with government registries.").classes("text-caption tp-muted")
-            with ui.column().classes("col gap-4"):
-                with ui.card().classes("tp-card w-full q-pa-md"):
-                    ui.label("Certifications on file").classes("tp-h2")
+                with ui.row().classes("w-full items-center justify-between gap-2"):
+                    ui.label("Identifiers are document-stated or user-entered and not verified with government registries.").classes("tp-caption col")
+                    if pc.can(Perm.COMPANY_WRITE):
+                        ui.button("Save profile", icon="save", on_click=save).props("unelevated color=primary")
+            with ui.column().classes("w-full gap-4"):
+                with panel("Certifications on file", f"{len(certs)} record(s)", icon="workspace_premium"):
                     from datetime import date
 
                     for t, n, vu, st in certs:
-                        ui.label(f"{t} {n or ''} — {'expired' if vu and vu < date.today() else 'valid to'} {vu or '?'} ({st})").classes("text-body2 " + ("text-negative" if vu and vu < date.today() else ""))
+                        expired = bool(vu and vu < date.today())
+                        with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line gap-2"):
+                            with ui.column().classes("gap-0 col"):
+                                ui.label(f"{t} {n or ''}").classes("text-weight-medium").style("color:#101828")
+                                ui.label(st).classes("tp-caption")
+                            ui.badge(f"{'Expired' if expired else 'Valid to'} {vu or '?'}", color="negative" if expired else "positive").classes("tp-chip")
                     if not certs:
                         ui.label("None extracted yet.").classes("tp-muted")
-                with ui.card().classes("tp-card w-full q-pa-md"):
-                    ui.label("Turnover records").classes("tp-h2")
+                with panel("Turnover records", f"{len(fins)} financial year(s)", icon="account_balance"):
                     for fy, amt, aud, st in fins:
-                        ui.label(f"FY {fy}: {format_inr(amt)} {'(audited)' if aud else ''} — {st}").classes("text-body2")
+                        with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line gap-2"):
+                            with ui.row().classes("items-center gap-2"):
+                                ui.label(f"FY {fy}").classes("text-weight-medium").style("color:#101828")
+                                if aud:
+                                    ui.badge("Audited", color="positive").props("outline").classes("tp-chip")
+                                ui.label(st).classes("tp-caption")
+                            ui.label(format_inr(amt)).classes("text-weight-medium tp-num").style("color:#101828")
                     if not fins:
                         ui.label("None extracted yet.").classes("tp-muted")
-                with ui.card().classes("tp-card w-full q-pa-md"):
-                    ui.label("Completed projects").classes("tp-h2")
+                with panel("Completed projects", f"{len(projects)} project(s)", icon="task_alt"):
                     for title, v, done in projects:
-                        ui.label(f"{title[:80]} — {format_inr(v) if v else 'value n/a'}, {done or 'date n/a'}").classes("text-body2")
+                        with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line gap-3"):
+                            with ui.column().classes("gap-0 col").style("min-width:0"):
+                                ui.label(title[:110]).classes("text-weight-medium").style("color:#101828")
+                                ui.label(f"Completed {done or 'date n/a'}").classes("tp-caption")
+                            ui.label(format_inr(v) if v else "Value n/a").classes("text-weight-medium tp-num").style("color:#101828;white-space:nowrap")
                     if not projects:
                         ui.label("None extracted yet.").classes("tp-muted")
 
@@ -266,9 +295,9 @@ def copilot_page(request: Request):
             convs = [(c.id, c.title, c.tender_id) for c in copilot.list_conversations(db, pc.ctx)]
             tenders_opts = {str(t.id): t.title[:70] for t in db.scalars(select(Tender).where(Tender.organization_id == pc.ctx.organization_id, Tender.deleted_at.is_(None)))}
         state = {"cid": parse_uuid(conv_q) if conv_q else None}
-        with ui.row().classes("w-full gap-4 no-wrap items-stretch").style("height: calc(100vh - 140px)"):
-            with ui.card().classes("tp-card q-pa-sm").style("width: 260px"):
-                ui.label("Conversations").classes("tp-h2 q-pa-sm")
+        with ui.row().classes("w-full gap-4 no-wrap items-stretch").style("height: calc(100vh - 148px); min-height:520px"):
+            with ui.card().classes("tp-card gt-sm").props("flat").style("width: 280px; padding:14px; gap:10px"):
+                ui.label("Conversations").classes("tp-h2")
                 tender_sel = ui.select({"": "No tender context", **tenders_opts}, value=tender_q or "", label="Tender context").props("outlined dense").classes("w-full")
 
                 def new_conv():
@@ -277,19 +306,35 @@ def copilot_page(request: Request):
                     cid = run(lambda db: copilot.start_conversation(db, pc.ctx, UUID(tender_sel.value) if tender_sel.value else None).id)
                     if cid:
                         ui.navigate.to(f"/copilot?c={cid}")
-                ui.button("New conversation", icon="add", on_click=new_conv).props("unelevated color=secondary").classes("w-full")
+                ui.button("New conversation", icon="add", on_click=new_conv).props("unelevated color=primary").classes("w-full")
+                ui.label("Recent").classes("tp-nav-section").style("padding:8px 2px 0")
                 with ui.scroll_area().classes("col"):
                     for cid, title, tid in convs:
-                        ui.item(title[:40], on_click=lambda cid=cid: ui.navigate.to(f"/copilot?c={cid}")).classes("rounded-borders" + (" bg-grey-2" if cid == state["cid"] else ""))
-            with ui.card().classes("tp-card col q-pa-md column no-wrap"):
+                        with ui.element("a").props(f'href="/copilot?c={cid}"').classes("tp-nav-item" + (" active" if cid == state["cid"] else "")):
+                            ui.icon("chat_bubble_outline", size="17px")
+                            ui.label(title[:40]).classes("ellipsis")
+                    if not convs:
+                        ui.label("No conversations yet.").classes("tp-caption q-pa-sm")
+            with ui.card().classes("tp-card col column no-wrap").props("flat").style("padding:0;gap:0;overflow:hidden"):
                 if not state["cid"]:
-                    empty_state("auto_awesome", "Procurement Copilot", "Ask about eligibility, evidence, deadlines or missing documents. Answers are grounded in your "
-                                "own records via TenderPilot tools, with sources. Pick a tender context and start a conversation.")
+                    with ui.column().classes("col w-full items-center justify-center"):
+                        with ui.element("div").classes("tp-logo").style("width:56px;height:56px;border-radius:16px"):
+                            ui.icon("auto_awesome", size="28px")
+                        ui.label("Procurement Copilot").classes("tp-h1 q-mt-md")
+                        ui.label("Ask about eligibility, evidence, deadlines or missing documents. Answers are grounded in your own records via "
+                                 "TenderPilot tools, with sources. Pick a tender context and start a conversation.").classes("tp-subtitle text-center").style("max-width:520px")
+                        ui.button("Start a conversation", icon="add", on_click=new_conv).props("unelevated color=primary").classes("q-mt-md")
                     return
-                msgs_area = ui.scroll_area().classes("col w-full")
-                stream_md = ui.markdown("").classes("text-body2 w-full")
+                with ui.row().classes("w-full items-center no-wrap gap-3").style("padding:14px 20px;border-bottom:1px solid #EAECF0"):
+                    with ui.element("div").classes("tp-logo"):
+                        ui.icon("auto_awesome", size="18px")
+                    with ui.column().classes("gap-0"):
+                        ui.label(next((t for c, t, _ in convs if c == state["cid"]), "Conversation")[:80]).classes("tp-h2")
+                        ui.label("Grounded in your records · cites sources · asks before changing anything").classes("tp-caption")
+                msgs_area = ui.scroll_area().classes("col w-full").style("padding:8px 20px")
+                stream_md = ui.markdown("").classes("text-body2 w-full q-px-lg")
                 stream_md.set_visibility(False)
-                status_line = ui.label("").classes("text-caption tp-muted")
+                status_line = ui.label("").classes("text-caption tp-muted q-px-lg")
 
                 def render():
                     msgs_area.clear()
@@ -318,7 +363,7 @@ def copilot_page(request: Request):
                                         ui.label("Tools used: " + ", ".join(c["tool"] for c in done)).classes("text-caption tp-muted")
                                     for i, c in enumerate(calls):
                                         if c.get("status") == "pending_approval":
-                                            with ui.card().classes("q-pa-sm").props("flat bordered"):
+                                            with ui.card().props("flat").style("padding:12px;background:#FFFAEB;border-color:#FEDF89;gap:6px"):
                                                 ui.label(f"Proposed action: {c['tool'].replace('_', ' ')}").classes("text-weight-medium")
                                                 ui.label("Requires your approval before anything is changed.").classes("text-caption tp-muted")
                                                 ui.button("Approve & run", on_click=lambda mid=mid, i=i: run(lambda db: copilot.execute_pending_action(db, pc.ctx, mid, i), success="Action completed", refresh=render)).props("dense unelevated color=secondary")
@@ -379,7 +424,7 @@ def copilot_page(request: Request):
                     render()
 
                 render()
-                with ui.row().classes("w-full no-wrap items-center"):
-                    box = ui.input(placeholder="Ask e.g. “Can we qualify for this tender?”").props("outlined rounded").classes("col")
+                with ui.row().classes("w-full no-wrap items-center gap-2").style("padding:14px 20px;border-top:1px solid #EAECF0;background:#FCFCFD"):
+                    box = ui.input(placeholder="Ask e.g. “Can we qualify for this tender?”").props("outlined").classes("col")
                     box.on("keydown.enter", lambda: send())
-                    ui.button(icon="send", on_click=lambda: send()).props("round unelevated color=primary")
+                    ui.button(icon="arrow_upward", on_click=lambda: send()).props("round unelevated color=primary").tooltip("Send")

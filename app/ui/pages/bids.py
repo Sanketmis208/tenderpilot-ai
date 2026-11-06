@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import date
 from decimal import Decimal
 
@@ -26,7 +27,7 @@ from app.services.notifications import service as notifications
 from app.services.organizations import auth_service, org_service
 from app.ui.components.common import download_button
 from app.ui.layouts.shell import run, shell
-from app.ui.themes.theme import empty_state
+from app.ui.themes.theme import empty_state, initials, page_header, panel
 
 BID_STATUS_COLOR = {"draft": "grey-7", "internal_review": "info", "changes_requested": "warning", "approved": "positive", "ready_for_external_submission": "secondary"}
 NEXT_ACTIONS = {"draft": ["submit_for_review"], "changes_requested": ["submit_for_review"], "internal_review": ["approve", "request_changes"],
@@ -38,22 +39,35 @@ def bids_list(request: Request):
     with shell(request, "/bids") as pc:
         if not pc:
             return
-        ui.label("Bid Workspaces").classes("tp-h1")
+        with page_header("Bid Workspaces", "Collaborative rooms for the tenders you've decided to pursue — tasks, drafts, BOQ, reviews and exports."):
+            ui.button("New from a tender", icon="add", on_click=lambda: ui.navigate.to("/tenders")).props("outline color=primary")
         with session_scope() as db:
             rows = [(w.id, w.name, w.status, t.title, t.submission_deadline, t.estimated_value, c) for w, t, c in bids.list_workspaces(db, pc.ctx)]
         if not rows:
             with ui.card().classes("tp-card w-full"):
                 empty_state("workspaces", "No bid workspaces", "Create a workspace from a tender you decide to pursue.", "Go to tenders", lambda: ui.navigate.to("/tenders"))
             return
-        for wid, name, status, title, dl, val, c in rows:
-            with ui.card().classes("tp-card w-full q-pa-md cursor-pointer").on("click", lambda wid=wid: ui.navigate.to(f"/bids/{wid}")):
-                with ui.row().classes("w-full items-center justify-between no-wrap"):
-                    with ui.column().classes("gap-0"):
-                        ui.label(title).classes("text-subtitle1 text-weight-medium")
-                        ui.label(f"{format_inr_short(val) if val else '—'} · closes {dl.astimezone(IST):%d %b %Y %H:%M} IST" if dl else "—").classes("tp-muted")
-                    with ui.row().classes("items-center gap-3"):
-                        ui.label(f"{c['open']} open · {c['done']} done tasks").classes("tp-muted")
-                        ui.badge(status.replace("_", " "), color=BID_STATUS_COLOR.get(status, "grey"))
+        with ui.element("div").classes("tp-grid-3 w-full"):
+            for wid, name, status, title, dl, val, c in rows:
+                total = (c["open"] or 0) + (c["done"] or 0)
+                with ui.card().classes("tp-card tp-panel cursor-pointer").props("flat").on("click", lambda wid=wid: ui.navigate.to(f"/bids/{wid}")):
+                    with ui.row().classes("w-full items-center justify-between no-wrap"):
+                        ui.icon("workspaces").classes("tp-feature-icon tp-tone-violet").style("width:38px;height:38px;font-size:20px")
+                        ui.badge(status.replace("_", " ").capitalize(), color=BID_STATUS_COLOR.get(status, "grey")).classes("tp-chip")
+                    ui.label(title).classes("text-subtitle1").style("color:#101828;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden")
+                    with ui.row().classes("items-center gap-3 tp-caption"):
+                        with ui.row().classes("items-center gap-1"):
+                            ui.icon("payments", size="15px")
+                            ui.label(format_inr_short(val) if val else "—")
+                        if dl:
+                            with ui.row().classes("items-center gap-1"):
+                                ui.icon("event", size="15px")
+                                ui.label(f"{dl.astimezone(IST):%d %b %Y}")
+                    with ui.column().classes("w-full gap-1"):
+                        with ui.row().classes("w-full justify-between"):
+                            ui.label("Tasks").classes("tp-caption")
+                            ui.label(f"{c['done']}/{total} done").classes("tp-caption tp-num")
+                        ui.linear_progress(value=(c["done"] / total) if total else 0, show_value=False)
 
 
 @ui.page("/bids/{workspace_id}")
@@ -72,39 +86,48 @@ def bid_workspace(request: Request, workspace_id: str):
             ui.label(exc.message).classes("text-negative")
             return
         name, status, tid, ttitle, dl, ref = head
-        with ui.row().classes("w-full items-start justify-between no-wrap"):
-            with ui.column().classes("gap-1"):
-                ui.link(f"← {ttitle}", f"/tenders/{tid}").classes("tp-link text-caption")
-                ui.label(name).classes("tp-h1")
-                with ui.row().classes("items-center gap-2"):
-                    ui.badge(status.replace("_", " "), color=BID_STATUS_COLOR.get(status, "grey"))
-                    ui.label(f"{ref or ''} · submission {dl.astimezone(IST):%d %b %Y %H:%M} IST" if dl else "").classes("tp-muted")
-            with ui.row().classes("gap-2"):
+
+        def _meta():
+            ui.badge(status.replace("_", " ").capitalize(), color=BID_STATUS_COLOR.get(status, "grey")).classes("tp-chip")
+            if ref:
+                with ui.row().classes("items-center gap-1 tp-caption no-wrap"):
+                    ui.icon("tag", size="15px")
+                    ui.label(ref)
+            if dl:
+                with ui.row().classes("items-center gap-1 tp-caption no-wrap"):
+                    ui.icon("event", size="15px")
+                    ui.label(f"Submission {dl.astimezone(IST):%d %b %Y %H:%M} IST")
+
+        with page_header(name, back=(ttitle, f"/tenders/{tid}"), meta=_meta):
                 ui.button("Ask copilot", icon="auto_awesome", on_click=lambda: ui.navigate.to(f"/copilot?tender={tid}")).props("outline color=primary")
                 for action in NEXT_ACTIONS.get(status, []):
                     needed = {"submit_for_review": Perm.BIDS_WRITE, "approve": Perm.BIDS_APPROVE, "request_changes": Perm.BIDS_APPROVE, "mark_ready": Perm.BIDS_APPROVE, "reopen": Perm.BIDS_MANAGE}[action]
                     if pc.can(needed):
                         ui.button(action.replace("_", " ").capitalize(), on_click=lambda action=action: approval_dialog(action)).props(
-                            "unelevated color=secondary" if action in ("approve", "submit_for_review", "mark_ready") else "outline color=primary")
+                            "unelevated color=primary" if action in ("approve", "submit_for_review", "mark_ready") else "outline color=primary")
+        _stepper(status)
         if status == "ready_for_external_submission":
-            ui.label("This bid is approved and packaged. Submit it yourself through the official procurement portal; TenderPilot does not submit bids or apply digital signatures.").classes("tp-quote")
+            with ui.row().classes("w-full items-center no-wrap gap-3 tp-card").style("padding:14px 18px;background:#ECFDF3;border-color:#ABEFC6"):
+                ui.icon("verified", size="22px").style("color:#079455")
+                ui.label("This bid is approved and packaged. Submit it yourself through the official procurement portal; TenderPilot does not submit bids or apply digital signatures.").classes("text-body2").style("color:#085D3A")
 
         def approval_dialog(action):
             with ui.dialog() as dlg, ui.card().style("width:480px"):
-                ui.label(action.replace("_", " ").capitalize()).classes("tp-h2")
+                ui.label(action.replace("_", " ").capitalize()).classes("tp-h1").style("font-size:1.2rem")
+                ui.label("Your decision and note are recorded in the bid's audit trail.").classes("tp-caption")
                 note = ui.textarea("Note" + (" (required)" if action == "request_changes" else "")).props("outlined").classes("w-full")
 
                 def go():
                     if run(lambda db: bids.approval_action(db, pc.ctx, wid, action, note.value), success="Recorded"):
                         dlg.close()
                         ui.navigate.reload()
-                with ui.row():
+                with ui.row().classes("w-full justify-end gap-2"):
+                    ui.button("Cancel", on_click=dlg.close).props("outline color=primary")
                     ui.button("Confirm", on_click=go).props("unelevated color=primary")
-                    ui.button("Cancel", on_click=dlg.close).props("flat")
             dlg.open()
 
         tab_q = request.query_params.get("tab", "tasks")
-        with ui.tabs().classes("w-full") as tabs:
+        with ui.tabs().classes("w-full").props("align=left") as tabs:
             tb = {k: ui.tab(k, label=v) for k, v in [("tasks", "Tasks"), ("drafts", "Drafts"), ("boq", "BOQ"), ("review", "Review & approvals"),
                                                      ("documents", "Documents & exports"), ("activity", "Activity")]}
         with ui.tab_panels(tabs, value=tb.get(tab_q, tb["tasks"])).classes("w-full bg-transparent"):
@@ -117,19 +140,52 @@ def bid_workspace(request: Request, workspace_id: str):
             with ui.tab_panel(tb["review"]):
                 with session_scope() as db:
                     rows = [(a.action, a.from_status, a.to_status, a.draft_version_no, members.get(str(a.actor_id), "—"), a.note, a.created_at) for a in bids.approvals(db, pc.ctx, wid)]
-                ui.label("Lifecycle: Draft → Internal review → Changes requested → Approved → Ready for external submission. Approvers cannot approve their own drafts.").classes("tp-muted")
-                for action, frm, to, dv, who, note, at in rows:
-                    ui.label(f"{at.astimezone(IST):%d %b %H:%M} · {who} · {action.replace('_', ' ')} ({frm} → {to}) {'· draft v' + str(dv) if dv else ''} {('— ' + note) if note else ''}").classes("text-body2")
-                if not rows:
-                    ui.label("No approval activity yet.").classes("tp-muted")
+                with panel("Review & approvals", "Draft → Internal review → Changes requested → Approved → Ready for external submission. Approvers cannot approve their own drafts.", icon="verified_user"):
+                    for action, frm, to, dv, who, note, at in rows:
+                        with ui.row().classes("w-full items-start no-wrap gap-3 tp-row-line"):
+                            ui.html(f'<div class="tp-avatar sm">{html.escape(initials(who))}</div>')
+                            with ui.column().classes("gap-0 col"):
+                                with ui.row().classes("items-center gap-2"):
+                                    ui.label(who).classes("text-weight-medium").style("color:#101828")
+                                    ui.badge(action.replace("_", " ").capitalize(), color={"approve": "positive", "request_changes": "warning"}.get(action, "grey-7")).classes("tp-chip")
+                                    ui.label(f"{frm} → {to}" + (f" · draft v{dv}" if dv else "")).classes("tp-caption")
+                                if note:
+                                    ui.label(note).classes("text-body2")
+                            ui.label(f"{at.astimezone(IST):%d %b %H:%M}").classes("tp-caption")
+                    if not rows:
+                        ui.label("No approval activity yet.").classes("tp-muted")
             with ui.tab_panel(tb["documents"]):
                 _exports(pc, wid)
             with ui.tab_panel(tb["activity"]):
                 with session_scope() as db:
                     ev = [(e.action, members.get(str(e.actor_id), "system"), e.created_at) for e in bids.timeline(db, pc.ctx, wid)]
-                with ui.timeline(side="right").classes("w-full"):
+                with panel("Activity", icon="timeline"), ui.timeline(side="right", color="primary").classes("w-full"):
                     for action, who, at in ev:
                         ui.timeline_entry("", title=action.replace(".", " › ").replace("_", " "), subtitle=f"{who} · {at.astimezone(IST):%d %b %H:%M}")
+
+
+STAGES = [("draft", "Draft"), ("internal_review", "Internal review"), ("approved", "Approved"), ("ready_for_external_submission", "Ready to submit")]
+
+
+def _stepper(status: str) -> None:
+    """Horizontal lifecycle indicator for the bid workspace."""
+    order = [k for k, _ in STAGES]
+    cur = order.index("draft" if status == "changes_requested" else status) if (status in order or status == "changes_requested") else 0
+    with ui.row().classes("w-full items-center no-wrap tp-card").style("padding:14px 20px;gap:0;overflow-x:auto"):
+        for i, (key, label) in enumerate(STAGES):
+            done, here = i < cur, i == cur
+            with ui.row().classes("items-center no-wrap gap-2").style("flex:none"):
+                with ui.element("div").style("width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:650;"
+                                             + ("background:#2563EB;color:#fff" if done else "background:#EFF4FF;color:#1D4ED8;box-shadow:inset 0 0 0 2px #2563EB" if here
+                                                else "background:#F2F4F7;color:#98A2B3")):
+                    if done:
+                        ui.icon("check", size="15px")
+                    else:
+                        ui.label(str(i + 1))
+                ui.label(label + (" · changes requested" if here and status == "changes_requested" else "")).classes("text-weight-medium").style(
+                    "font-size:.85rem;" + ("color:#101828" if done or here else "color:#98A2B3"))
+            if i < len(STAGES) - 1:
+                ui.element("div").classes("col").style(f"height:2px;min-width:24px;margin:0 14px;background:{'#2563EB' if done else '#EAECF0'};border-radius:2px")
 
 
 def _tasks(pc, wid, members):
@@ -138,16 +194,28 @@ def _tasks(pc, wid, members):
         with session_scope() as db:
             tasks = [(t.id, t.title, t.description, t.status, t.priority, t.assignee_id, t.due_date, t.source, t.lock_version) for t in bids.list_tasks(db, pc.ctx, wid)]
         if not tasks:
-            ui.label("No tasks yet. Remediation tasks are created automatically from eligibility gaps.").classes("tp-muted")
+            with ui.card().classes("tp-card w-full").props("flat"):
+                empty_state("task_alt", "No tasks yet", "Remediation tasks are created automatically from eligibility gaps, or add your own above.")
+        done_n = sum(1 for t in tasks if t[3] == "done")
+        if tasks:
+            with ui.row().classes("w-full items-center gap-3"):
+                ui.label(f"{done_n} of {len(tasks)} tasks done").classes("tp-caption text-weight-medium")
+                ui.linear_progress(value=done_n / len(tasks), show_value=False).classes("col").style("max-width:240px")
         for tid, title, desc, status, prio, assignee, due, source, lv in tasks:
             overdue = due and due < date.today() and status != "done"
-            with ui.card().classes("tp-card w-full q-pa-sm"):
-                with ui.row().classes("w-full items-center justify-between no-wrap"):
+            with ui.card().classes("tp-card w-full").props("flat").style("padding:10px 14px;gap:4px"):
+                with ui.row().classes("w-full items-center justify-between no-wrap gap-2"):
                     with ui.row().classes("items-center gap-2 no-wrap col"):
                         ui.checkbox(value=status == "done", on_change=lambda e, tid=tid, lv=lv: run(lambda db: bids.update_task(db, pc.ctx, tid, {"status": "done" if e.value else "todo"}, lv), refresh=body.refresh)).set_enabled(pc.can(Perm.TASKS_WRITE))
                         with ui.column().classes("gap-0"):
-                            ui.label(title).classes("text-body1" + (" text-strike tp-muted" if status == "done" else ""))
-                            ui.label(f"{source} · {prio} priority" + (f" · due {due:%d %b}" if due else "")).classes("text-caption " + ("text-negative" if overdue else "tp-muted"))
+                            ui.label(title).classes("text-body1 text-weight-medium" + (" text-strike tp-muted" if status == "done" else "")).style("" if status == "done" else "color:#101828")
+                            with ui.row().classes("items-center gap-2"):
+                                ui.badge(prio.capitalize(), color=PRIO_COLOR.get(prio, "grey-7")).props("outline").classes("tp-chip")
+                                ui.label(source.replace("_", " ")).classes("tp-caption")
+                                if due:
+                                    with ui.row().classes("items-center gap-1 no-wrap"):
+                                        ui.icon("event", size="14px").style(f"color:{'#D92D20' if overdue else '#98A2B3'}")
+                                        ui.label(("Overdue · " if overdue else "Due ") + f"{due:%d %b}").classes("text-caption").style(f"color:{'#B42318' if overdue else '#667085'}")
                     if pc.can(Perm.TASKS_WRITE):
                         ui.select({"": "Unassigned", **members}, value=str(assignee) if assignee else "",
                                   on_change=lambda e, tid=tid, lv=lv: run(lambda db: bids.update_task(db, pc.ctx, tid, {"assignee_id": parse_uuid(e.value) if e.value else None}, lv), success="Assigned", refresh=body.refresh)).props("dense outlined").style("width:180px")
@@ -159,8 +227,8 @@ def _tasks(pc, wid, members):
                         comments_box(pc, wid, tid)
 
     if pc.can(Perm.TASKS_WRITE):
-        with ui.row().classes("w-full gap-2 items-center"):
-            title = ui.input("New task").props("outlined dense").classes("col")
+        with ui.row().classes("w-full gap-2 items-center tp-card").style("padding:12px"):
+            title = ui.input("New task").props("outlined dense").classes("col").style("min-width:220px")
             prio = ui.select(["low", "medium", "high", "urgent"], value="medium").props("outlined dense").style("width:120px")
             due = ui.input("Due (YYYY-MM-DD)").props("outlined dense").style("width:170px")
 
@@ -170,7 +238,7 @@ def _tasks(pc, wid, members):
                     return bids.create_task(db, pc.ctx, wid, title=title.value or "", priority=prio.value, due_date=d)
                 if run(do, success="Task added", refresh=body.refresh):
                     title.value = ""
-            ui.button("Add", on_click=add).props("unelevated color=primary")
+            ui.button("Add task", icon="add", on_click=add).props("unelevated color=primary")
     body()
 
 
@@ -181,15 +249,22 @@ def comments_box(pc, wid, task_id):
             rows = [(c.body, c.author_id, c.created_at) for c in bids.comments(db, pc.ctx, wid, task_id=task_id)]
             names = {u.id: u.full_name for u in db.scalars(select(User).where(User.id.in_([r[1] for r in rows if r[1]])))}
         for b, a, at in rows:
-            ui.label(f"{names.get(a, '—')} · {at.astimezone(IST):%d %b %H:%M}: {b}").classes("text-caption")
+            with ui.row().classes("w-full items-start no-wrap gap-2 q-py-xs"):
+                ui.html(f'<div class="tp-avatar sm">{html.escape(initials(names.get(a, "—")))}</div>')
+                with ui.column().classes("gap-0 col"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.label(names.get(a, "—")).classes("text-caption text-weight-medium").style("color:#101828")
+                        ui.label(f"{at.astimezone(IST):%d %b %H:%M}").classes("tp-caption")
+                    ui.label(b).classes("text-body2")
     body()
     if pc.can(Perm.BIDS_WRITE):
         with ui.row().classes("w-full no-wrap"):
-            inp = ui.input("Comment").props("dense outlined").classes("col")
+            inp = ui.input("Write a comment…").props("dense outlined").classes("col")
             ui.button(icon="send", on_click=lambda: (run(lambda db: bids.add_comment(db, pc.ctx, wid, inp.value or "", task_id=task_id), refresh=body.refresh), inp.set_value(""))).props("flat dense")
 
 
 SEV_COLOR = {"high": "negative", "medium": "warning", "low": "grey-7"}
+PRIO_COLOR = {"urgent": "negative", "high": "orange", "medium": "info", "low": "grey-7"}
 
 
 def _agent_panel(pc, wid, ws_status, on_drafts_changed):
@@ -199,20 +274,23 @@ def _agent_panel(pc, wid, ws_status, on_drafts_changed):
         with session_scope() as db:
             r = bid_preparation.latest_run(db, pc.ctx, wid)
             info = (r.id, r.status, r.mode, r.history, r.result or {}, r.interrupt_payload, r.error) if r else None
-        with ui.card().classes("tp-card w-full q-pa-md"):
-            with ui.row().classes("w-full items-center justify-between"):
-                with ui.column().classes("gap-0"):
-                    ui.label("Bid preparation agent").classes("tp-h2")
-                    ui.label("Plans the document structure, drafts from verified evidence, checks for unsupported claims, suggests attachments "
-                             "and stops for your decision before anything is submitted for review.").classes("text-caption tp-muted")
+        with ui.card().classes("tp-card tp-panel w-full").props("flat").style("background:linear-gradient(180deg,#F8FAFF 0%,#fff 70%);border-color:#D1E0FF"):
+            with ui.row().classes("w-full items-center justify-between no-wrap gap-3"):
+                with ui.row().classes("items-center no-wrap gap-3 col"):
+                    with ui.element("div").classes("tp-logo").style("width:38px;height:38px;border-radius:11px"):
+                        ui.icon("smart_toy", size="21px")
+                    with ui.column().classes("gap-0 col"):
+                        ui.label("Bid preparation agent").classes("tp-h2")
+                        ui.label("Plans the document structure, drafts from verified evidence, checks for unsupported claims, suggests attachments "
+                                 "and stops for your decision before anything is submitted for review.").classes("tp-caption")
                 if pc.can(Perm.BIDS_WRITE) and ws_status in ("draft", "changes_requested") and (not info or info[1] not in ("running", "interrupted")):
-                    ui.button("Run agent", icon="smart_toy", on_click=lambda: run(lambda db: bid_preparation.start(db, pc.ctx, wid), success="Agent started",
-                                                                                     refresh=panel.refresh)).props("unelevated color=secondary")
+                    ui.button("Run agent", icon="play_arrow", on_click=lambda: run(lambda db: bid_preparation.start(db, pc.ctx, wid), success="Agent started",
+                                                                                     refresh=panel.refresh)).props("unelevated color=primary")
             if not info:
                 return
             rid, status, mode, history, result, intr, err = info
             with ui.row().classes("items-center gap-2"):
-                ui.badge(status, color={"completed": "positive", "interrupted": "warning", "failed": "negative"}.get(status, "info"))
+                ui.badge(status.capitalize(), color={"completed": "positive", "interrupted": "warning", "failed": "negative"}.get(status, "info")).classes("tp-chip")
                 ui.label(f"{mode} mode · " + " → ".join(h["node"].replace("_", " ") for h in history)).classes("text-caption tp-muted")
             if err:
                 ui.label(err[:300]).classes("text-negative text-caption")
@@ -220,11 +298,13 @@ def _agent_panel(pc, wid, ws_status, on_drafts_changed):
             if summ:
                 ui.label(("AI summary (claims verified against the draft)" if summ.get("mode") == "llm" else "Summary (rule-based)") + ": " + summ.get("text", "")).classes("text-body2")
             for f in result.get("findings") or []:
-                ui.label(f"● {f['text']}").classes(f"text-caption text-{SEV_COLOR.get(f['severity'], 'grey-7')}")
+                with ui.row().classes("items-start no-wrap gap-2"):
+                    ui.badge(f["severity"].capitalize(), color=SEV_COLOR.get(f["severity"], "grey-7")).classes("tp-chip")
+                    ui.label(f["text"]).classes("text-body2")
             att = result.get("attachments") or []
             if att:
                 with ui.expansion(f"Suggested attachments ({sum(1 for a in att if a['status'] == 'on_record')} on record, "
-                                  f"{sum(1 for a in att if a['status'] == 'missing')} missing)").classes("w-full"):
+                                  f"{sum(1 for a in att if a['status'] == 'missing')} missing)", icon="attach_file").classes("w-full").style("background:#fff;border:1px solid #EAECF0"):
                     for a in att:
                         if a.get("document_version_id"):
                             ui.link(f"{a['requirement']}: {a['attach']}" + (f" p.{a['page']}" if a.get("page") else ""),
@@ -232,14 +312,15 @@ def _agent_panel(pc, wid, ws_status, on_drafts_changed):
                         else:
                             ui.label(f"{a['requirement']}: {a['attach']}").classes("text-caption " + ("text-negative" if a["status"] == "missing" else ""))
             if status == "interrupted" and intr and pc.can(Perm.BIDS_WRITE):
-                with ui.row().classes("items-center gap-2 q-mt-sm"):
-                    ui.label(intr.get("question", "Decision needed")).classes("text-weight-medium")
+                with ui.row().classes("w-full items-center gap-2 q-mt-sm tp-card").style("padding:12px 14px;background:#FFFAEB;border-color:#FEDF89"):
+                    ui.icon("front_hand", size="20px").style("color:#DC6803")
+                    ui.label(intr.get("question", "Decision needed")).classes("text-weight-medium col").style("color:#101828")
 
                     def decide(d):
                         if run(lambda db: bid_preparation.resume(db, pc.ctx, rid, d), success="Decision recorded"):
                             ui.navigate.reload() if d == "submit" else (panel.refresh(), on_drafts_changed())
-                    ui.button("Submit for internal review", on_click=lambda: decide("submit")).props("unelevated color=secondary")
                     ui.button("Keep as draft", on_click=lambda: decide("keep_draft")).props("outline color=primary")
+                    ui.button("Submit for internal review", on_click=lambda: decide("submit")).props("unelevated color=primary")
             if status == "running":
                 ui.timer(2.0, lambda: (panel.refresh(), on_drafts_changed()), once=True)
     panel()
@@ -250,28 +331,35 @@ def _drafts(pc, wid, ws_status):
     def body():
         with session_scope() as db:
             drafts = [(d.id, d.kind, d.title, d.version_no, d.status, d.sections, d.generator, d.lock_version) for d in bids.drafts(db, pc.ctx, wid)]
-        if pc.can(Perm.BIDS_WRITE):
-            ui.button("Generate drafts from verified evidence", icon="auto_fix_high",
-                      on_click=lambda: run(lambda db: generation.generate_drafts(db, pc.ctx, wid), success="Drafts generated", refresh=body.refresh)).props("unelevated color=secondary")
-        ui.label("Every statement is drawn from your records with a [Source: …] citation. Unknown facts appear as [TO BE COMPLETED: …] — nothing is invented.").classes("text-caption tp-muted")
+        with ui.row().classes("w-full items-center justify-between gap-3"):
+            ui.label("Every statement is drawn from your records with a [Source: …] citation. Unknown facts appear as [TO BE COMPLETED: …] — nothing is invented.").classes("tp-caption col")
+            if pc.can(Perm.BIDS_WRITE):
+                ui.button("Generate drafts from verified evidence", icon="auto_fix_high",
+                          on_click=lambda: run(lambda db: generation.generate_drafts(db, pc.ctx, wid), success="Drafts generated", refresh=body.refresh)).props("unelevated color=primary")
         if not drafts:
-            ui.label("No drafts yet.").classes("tp-muted")
+            with ui.card().classes("tp-card w-full").props("flat"):
+                empty_state("edit_note", "No drafts yet", "Generate drafts from verified evidence, or run the bid preparation agent.")
         for did, kind, title, vno, status, sections, gen, lv in drafts:
-            with ui.card().classes("tp-card w-full q-pa-md"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    ui.label(f"{title} · v{vno}").classes("tp-h2")
-                    with ui.row().classes("items-center gap-2"):
-                        ui.badge(status.replace("_", " "), color=BID_STATUS_COLOR.get(status, "grey")).props("outline")
-                        ui.badge(gen, color="grey-7").props("outline")
+            with ui.card().classes("tp-card tp-panel w-full").props("flat"):
+                with ui.row().classes("w-full items-center justify-between no-wrap gap-2"):
+                    with ui.row().classes("items-center no-wrap gap-3"):
+                        ui.icon("article").classes("tp-feature-icon tp-tone-primary").style("width:36px;height:36px;font-size:19px")
+                        with ui.column().classes("gap-0"):
+                            ui.label(title).classes("tp-h2")
+                            ui.label(f"Version {vno} · {gen}").classes("tp-caption")
+                    ui.badge(status.replace("_", " ").capitalize(), color=BID_STATUS_COLOR.get(status, "grey")).classes("tp-chip")
                 editors = []
                 for s in sections:
-                    ui.label(s["heading"] + ("  · AI-written, claims checked" if s.get("ai_generated") else "")).classes("text-subtitle2 q-mt-sm")
+                    with ui.row().classes("items-center gap-2 q-mt-sm"):
+                        ui.label(s["heading"]).classes("text-subtitle2")
+                        if s.get("ai_generated"):
+                            ui.badge("AI-written · claims checked", color="accent").classes("tp-chip")
                     ta = ui.textarea(value=s["body"]).props("outlined autogrow").classes("w-full")
                     ta.set_enabled(pc.can(Perm.BIDS_WRITE) and ws_status in ("draft", "changes_requested"))
                     editors.append((s, ta))
                 if pc.can(Perm.BIDS_WRITE) and ws_status in ("draft", "changes_requested"):
                     ui.button("Save as new version", icon="save", on_click=lambda did=did, editors=editors, lv=lv: run(
-                        lambda db: bids.edit_draft(db, pc.ctx, did, [{**s, "body": ta.value} for s, ta in editors], lv), success="Saved new version", refresh=body.refresh)).props("dense unelevated color=primary")
+                        lambda db: bids.edit_draft(db, pc.ctx, did, [{**s, "body": ta.value} for s, ta in editors], lv), success="Saved new version", refresh=body.refresh)).props("unelevated color=primary").classes("self-end")
     _agent_panel(pc, wid, ws_status, lambda: body.refresh())
     body()
 
@@ -293,40 +381,53 @@ def _boq(pc, wid, tid):
                         lambda: run(lambda db: boq.import_boq(db, pc.ctx, tid), success="BOQ analysed", refresh=body.refresh))
             return
         iid, sheet, summary, issues = imp_info
-        with ui.row().classes("w-full gap-2"):
+        with ui.element("div").classes("tp-kpi-grid w-full").style("grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"):
             for k, v in summary.items():
-                ui.badge(f"{k.replace('_', ' ')}: {v}", color="grey-7").props("outline")
+                with ui.card().classes("tp-card").props("flat").style("padding:12px 16px;gap:2px"):
+                    ui.label(k.replace("_", " ").capitalize()).classes("tp-caption")
+                    ui.label(str(v)).classes("tp-num").style("font-weight:650;font-size:1.2rem;color:#101828")
         if issues:
             with ui.expansion(f"{len(issues)} issue(s) detected", icon="warning").classes("tp-card w-full"):
                 for i in issues:
                     ui.label(f"{i['type'].replace('_', ' ')} — rows {', '.join(map(str, i['rows']))}: {i['description']}" + (f" (units: {', '.join(i['units'])})" if i.get("units") else "")).classes("text-body2")
         ui.label("Internal estimate — kept separate from the prescribed BOQ. Enter rates below; amounts use exact decimal arithmetic.").classes("text-caption tp-muted")
         rate_inputs = {}
-        with ui.element("div").classes("w-full tp-card").style("max-height: 520px; overflow: auto"):
-            with ui.grid(columns="60px 70px 1fr 70px 90px 130px").classes("w-full q-pa-sm gap-1 items-center"):
+        with ui.element("div").classes("w-full tp-card").style("max-height: 560px; overflow: auto"):
+            with ui.grid(columns="60px 80px 1fr 70px 90px 140px").classes("w-full items-center").style("gap:0;row-gap:0"):
                 for h in ("Row", "Item", "Description", "Unit", "Qty", "Rate (₹)"):
-                    ui.label(h).classes("text-caption text-weight-bold tp-muted")
+                    ui.label(h).classes("text-caption text-weight-bold").style("color:#475467;background:#F9FAFB;padding:10px 8px;border-bottom:1px solid #EAECF0;position:sticky;top:0;z-index:1")
+                cell = "padding:6px 8px;border-bottom:1px solid #F2F4F7;min-height:44px;display:flex;align-items:center"
                 for iid_, row, code, desc, unit, qty, rate, locked, heading, sub, its, formula in items:
-                    ui.label(str(row)).classes("text-caption")
-                    ui.label(code or "").classes("text-caption")
-                    ui.label(desc).classes("text-body2 " + ("text-weight-bold" if heading or sub else "")).tooltip(", ".join(its) if its else (formula or ""))
-                    ui.label(unit or ("—" if not (heading or sub) else "")).classes("text-caption" + (" text-negative" if "missing_unit" in its else ""))
-                    ui.label(str(qty) if qty is not None else ("—" if not (heading or sub) else "")).classes("text-caption" + (" text-negative" if "missing_quantity" in its else ""))
+                    bg = "background:#F9FAFB;" if heading or sub else ""
+                    ui.label(str(row)).classes("text-caption tp-num tp-muted").style(cell + bg)
+                    ui.label(code or "").classes("text-caption").style(cell + bg)
+                    ui.label(desc).classes("text-body2 " + ("text-weight-bold" if heading or sub else "")).style(cell + bg).tooltip(", ".join(its) if its else (formula or ""))
+                    ui.label(unit or ("—" if not (heading or sub) else "")).classes("text-caption" + (" text-negative" if "missing_unit" in its else "")).style(cell + bg)
+                    ui.label(str(qty) if qty is not None else ("—" if not (heading or sub) else "")).classes("text-caption tp-num" + (" text-negative" if "missing_quantity" in its else "")).style(cell + bg)
                     if heading or sub:
-                        ui.label("")
+                        ui.label("").style(cell + bg)
                     else:
-                        rate_inputs[iid_] = ui.input(value=str(rate) if rate is not None else "").props("dense outlined" + (" readonly" if locked else "")).classes("w-full")
-        with ui.row().classes("w-full items-center gap-2"):
+                        with ui.element("div").style(cell):
+                            rate_inputs[iid_] = ui.input(value=str(rate) if rate is not None else "").props("dense outlined" + (" readonly" if locked else "")).classes("w-full")
+        with ui.row().classes("w-full items-center gap-2 tp-card").style("padding:12px"):
             name = ui.input("Scenario name", value="Base estimate").props("outlined dense")
             mk = ui.input("Markup %", value="10").props("outlined dense").style("width:110px")
             gst = ui.input("GST %", value="18").props("outlined dense").style("width:110px")
             ui.button("Calculate & save scenario", on_click=lambda: run(lambda db: boq.save_scenario(db, pc.ctx, iid, name.value, {k: v.value for k, v in rate_inputs.items() if v.value}, mk.value, gst.value),
                                                                         success="Scenario saved", refresh=body.refresh)).props("unelevated color=primary")
         for sid, sname, totals in scen:
-            with ui.card().classes("tp-card w-full q-pa-sm"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    ui.label(f"{sname}: subtotal {format_inr(Decimal(totals['subtotal']))} + GST {format_inr(Decimal(totals['gst']))} = {format_inr(Decimal(totals['grand_total']))}").classes("text-weight-medium")
-                    ui.label(f"{totals['priced_items']} priced · {totals['unpriced_items']} unpriced{' · INCOMPLETE' if not totals['complete'] else ''}").classes("text-caption " + ("text-warning" if not totals["complete"] else "tp-muted"))
+            with ui.card().classes("tp-card w-full").props("flat").style("padding:14px 18px"):
+                with ui.row().classes("w-full items-center justify-between no-wrap gap-3"):
+                    with ui.column().classes("gap-1 col"):
+                        with ui.row().classes("items-center gap-2"):
+                            ui.label(sname).classes("tp-h2")
+                            if not totals["complete"]:
+                                ui.badge("Incomplete", color="warning").classes("tp-chip")
+                            ui.label(f"{totals['priced_items']} priced · {totals['unpriced_items']} unpriced").classes("tp-caption")
+                        ui.label(f"Subtotal {format_inr(Decimal(totals['subtotal']))} + GST {format_inr(Decimal(totals['gst']))}").classes("tp-caption tp-num")
+                    with ui.column().classes("items-end gap-0"):
+                        ui.label("Grand total").classes("tp-caption")
+                        ui.label(format_inr(Decimal(totals["grand_total"]))).classes("tp-num").style("font-weight:650;font-size:1.15rem;color:#101828")
 
                     def export(sid=sid):
                         ver = run(lambda db: boq.export_priced_copy(db, pc.ctx, sid), success="Priced copy exported (formulas and locked cells preserved)")
@@ -349,22 +450,27 @@ def _exports(pc, wid):
             for a in bids.artifacts(db, pc.ctx, wid):
                 d = db.get(Document, a.document_id)
                 arts.append((a.kind, a.format, d.title if d else "", d.current_version_id if d else None, a.created_at))
-        if pc.can(Perm.BIDS_WRITE):
-            ui.button("Export submission package", icon="inventory_2", on_click=lambda: run(lambda db: generation.export_package(db, pc.ctx, wid),
-                                                                                           success="Package exported", refresh=body.refresh)).props("unelevated color=secondary")
-        ui.label("Generates the technical response (DOCX), capability summary, compliance matrix and checklist (XLSX), evidence and risk reports (PDF), "
-                 "and a ZIP with the exact supporting document versions plus a SHA-256 manifest.").classes("text-caption tp-muted")
+        with ui.row().classes("w-full items-center justify-between gap-3"):
+            ui.label("Generates the technical response (DOCX), capability summary, compliance matrix and checklist (XLSX), evidence and risk reports (PDF), "
+                     "and a ZIP with the exact supporting document versions plus a SHA-256 manifest.").classes("tp-caption col")
+            if pc.can(Perm.BIDS_WRITE):
+                ui.button("Export submission package", icon="inventory_2", on_click=lambda: run(lambda db: generation.export_package(db, pc.ctx, wid),
+                                                                                               success="Package exported", refresh=body.refresh)).props("unelevated color=primary")
         if not arts:
-            ui.label("No exports yet.").classes("tp-muted")
-        for kind, fmt, title, vid, at in arts:
-            with ui.row().classes("w-full items-center justify-between no-wrap q-py-xs").style("border-bottom:1px solid #EEF1F5"):
-                with ui.row().classes("items-center gap-2"):
-                    ui.badge(fmt.upper(), color="primary").props("outline")
-                    ui.label(title).classes("text-body2")
-                with ui.row().classes("items-center gap-2"):
-                    ui.label(at.astimezone(IST).strftime("%d %b %H:%M")).classes("text-caption tp-muted")
-                    if vid:
-                        download_button(pc, vid)
+            with ui.card().classes("tp-card w-full").props("flat"):
+                empty_state("inventory_2", "No exports yet", "Export the submission package to generate reviewable documents.")
+            return
+        with ui.card().classes("tp-card w-full").props("flat").style("padding:4px 18px;gap:0"):
+            for kind, fmt, title, vid, at in arts:
+                with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line"):
+                    with ui.row().classes("items-center gap-3 no-wrap"):
+                        tone = {"pdf": "rose", "xlsx": "green", "docx": "primary", "zip": "amber"}.get(fmt.lower(), "grey")
+                        ui.label(fmt.upper()).classes(f"tp-tone-{tone}").style("font-size:.65rem;font-weight:700;border-radius:6px;padding:4px 0;width:42px;text-align:center")
+                        ui.label(title).classes("text-body2 text-weight-medium").style("color:#101828")
+                    with ui.row().classes("items-center gap-2"):
+                        ui.label(at.astimezone(IST).strftime("%d %b %H:%M")).classes("text-caption tp-muted")
+                        if vid:
+                            download_button(pc, vid)
     body()
 
 
@@ -373,29 +479,35 @@ def team(request: Request):
     with shell(request, "/team") as pc:
         if not pc:
             return
-        ui.label("Team").classes("tp-h1")
+        with page_header("Team", "Members, roles and pending invitations for this organization."):
+            pass
 
         @ui.refreshable
         def body():
             with session_scope() as db:
                 ms = [(m.id, u.full_name, u.email, m.role, m.is_active) for m, u in org_service.list_members(db, pc.ctx)]
                 invs = [(i.id, i.email, i.role, i.expires_at) for i in org_service.list_invitations(db, pc.ctx)] if pc.can(Perm.MEMBERS_MANAGE) else []
-            with ui.card().classes("tp-card w-full q-pa-md"):
-                ui.label("Members").classes("tp-h2")
+            with panel("Members", f"{sum(1 for m in ms if m[4])} active member(s)", icon="groups"):
                 for mid, nm, email, role, active in ms:
-                    with ui.row().classes("w-full items-center justify-between no-wrap q-py-xs"):
-                        ui.label(f"{nm} · {email}" + ("" if active else " (removed)")).classes("" if active else "tp-muted")
+                    with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line gap-3"):
+                        with ui.row().classes("items-center no-wrap gap-3 col").style("min-width:0" + ("" if active else ";opacity:.55")):
+                            ui.html(f'<div class="tp-avatar">{html.escape(initials(nm))}</div>')
+                            with ui.column().classes("gap-0 col").style("min-width:0"):
+                                with ui.row().classes("items-center gap-2"):
+                                    ui.label(nm).classes("text-weight-medium").style("color:#101828")
+                                    if not active:
+                                        ui.badge("Removed", color="grey-6").classes("tp-chip")
+                                ui.label(email).classes("tp-caption ellipsis")
                         if pc.can(Perm.MEMBERS_MANAGE) and active:
                             with ui.row().classes("items-center gap-1"):
                                 ui.select({r.value: ROLE_LABELS[r] for r in Role}, value=role,
                                           on_change=lambda e, mid=mid: run(lambda db: org_service.change_member_role(db, pc.ctx, mid, e.value), success="Role updated", refresh=body.refresh)).props("dense outlined").style("width:200px")
                                 ui.button(icon="person_remove", on_click=lambda mid=mid: run(lambda db: org_service.remove_member(db, pc.ctx, mid), success="Member removed", refresh=body.refresh)).props("flat dense color=negative")
                         else:
-                            ui.badge(ROLE_LABELS.get(role, role), color="grey-7").props("outline")
+                            ui.badge(ROLE_LABELS.get(role, role), color="grey-7").props("outline").classes("tp-chip")
             if pc.can(Perm.MEMBERS_MANAGE):
-                with ui.card().classes("tp-card w-full q-pa-md"):
-                    ui.label("Invite a teammate").classes("tp-h2")
-                    with ui.row().classes("w-full gap-2"):
+                with panel("Invite a teammate", "They'll receive an email link to join this organization.", icon="person_add"):
+                    with ui.row().classes("w-full gap-2 items-center"):
                         email = ui.input("Email").props("outlined dense").classes("col")
                         role = ui.select({r.value: ROLE_LABELS[r] for r in Role if r != Role.OWNER or pc.ctx.role == Role.OWNER}, value="contributor").props("outlined dense").style("width:220px")
 
@@ -403,10 +515,16 @@ def team(request: Request):
                             res = run(lambda db: org_service.invite_member(db, pc.ctx, email.value or "", role.value), success="Invitation sent", refresh=body.refresh)
                             if res and get_settings().environment == "development":
                                 ui.notify(f"Dev invite link: {get_settings().base_url}/invite?token={res[1]}", type="info", timeout=0, close_button=True, multi_line=True)
-                        ui.button("Invite", on_click=invite).props("unelevated color=primary")
+                        ui.button("Send invite", icon="send", on_click=invite).props("unelevated color=primary")
+                    if invs:
+                        ui.label("Pending invitations").classes("tp-nav-section").style("padding:8px 0 0")
                     for iid, em, rl, exp in invs:
-                        with ui.row().classes("w-full items-center justify-between"):
-                            ui.label(f"{em} — {ROLE_LABELS.get(rl, rl)} · expires {exp.astimezone(IST):%d %b}").classes("text-body2")
+                        with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line"):
+                            with ui.row().classes("items-center gap-2"):
+                                ui.icon("mail_outline", size="18px").style("color:#98A2B3")
+                                ui.label(em).classes("text-body2 text-weight-medium").style("color:#101828")
+                                ui.badge(ROLE_LABELS.get(rl, rl), color="grey-7").props("outline").classes("tp-chip")
+                                ui.label(f"expires {exp.astimezone(IST):%d %b}").classes("tp-caption")
                             ui.button("Revoke", on_click=lambda iid=iid: run(lambda db: org_service.revoke_invitation(db, pc.ctx, iid), success="Revoked", refresh=body.refresh)).props("flat dense color=negative")
         body()
 
@@ -416,7 +534,8 @@ def settings_page(request: Request):
     with shell(request, "/settings") as pc:
         if not pc:
             return
-        ui.label("Settings").classes("tp-h1")
+        with page_header("Settings", "Organization details, document branding, notifications, API access, plan and integrations."):
+            pass
         with session_scope() as db:
             org = db.get(Organization, pc.ctx.organization_id)
             sub, plan = entitlements.get_subscription(db, pc.ctx.organization_id)
@@ -429,32 +548,33 @@ def settings_page(request: Request):
 
             tokens = [(t.id, t.name, t.token_prefix, t.scopes, t.revoked_at, t.expires_at) for t in db.scalars(select(ApiToken).where(ApiToken.organization_id == pc.ctx.organization_id, ApiToken.user_id == pc.ctx.user_id))]
         name, osettings, sub_status, plan_name, pending, period_end = org_info
-        with ui.row().classes("w-full gap-4 items-start"):
-            with ui.column().classes("col gap-4"):
-                with ui.card().classes("tp-card w-full q-pa-md"):
-                    ui.label("Organization").classes("tp-h2")
+        with ui.element("div").classes("tp-grid-2 w-full"):
+            with ui.column().classes("w-full gap-4"):
+                with panel("Organization", icon="domain"):
                     nm = ui.input("Name", value=name).props("outlined dense").classes("w-full")
                     lh = ui.input("Letterhead name on generated documents", value=osettings.get("letterhead_name", "")).props("outlined dense").classes("w-full")
                     pol = ui.select({"reopen_approvals_on_mandatory_change": "Reopen approvals when a corrigendum changes a mandatory condition",
                                      "flag_only": "Only flag affected items"}, value=osettings.get("amendment_policy", "reopen_approvals_on_mandatory_change"), label="Corrigendum policy").props("outlined dense").classes("w-full")
                     if pc.can(Perm.ORG_MANAGE):
-                        ui.button("Save", on_click=lambda: run(lambda db: org_service.update_org_settings(db, pc.ctx, name=nm.value, settings={"letterhead_name": lh.value, "amendment_policy": pol.value}), success="Saved")).props("unelevated color=primary")
+                        ui.button("Save changes", on_click=lambda: run(lambda db: org_service.update_org_settings(db, pc.ctx, name=nm.value, settings={"letterhead_name": lh.value, "amendment_policy": pol.value}), success="Saved")).props("unelevated color=primary").classes("self-end")
                 _template_card(pc, osettings)
-                with ui.card().classes("tp-card w-full q-pa-md"):
-                    ui.label("Notifications").classes("tp-h2")
+                with panel("Notifications", "Choose which events also send an email", icon="notifications_none"):
                     for kind, label in [("deadline", "Deadline reminders"), ("document_expiry", "Document expiry warnings"), ("task_assigned", "Task assignments"),
                                         ("review_requested", "Review requests"), ("approval", "Approvals"), ("amendment", "Tender amendments"), ("job_failed", "Failed processing")]:
-                        with ui.row().classes("w-full items-center justify-between"):
-                            ui.label(label)
-                            em = ui.switch("Email", value=True)
+                        with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line"):
+                            ui.label(label).classes("text-body2").style("color:#101828")
+                            em = ui.switch("Email", value=True).props("dense")
                             em.on_value_change(lambda e, kind=kind: run(lambda db: notifications.set_preference(db, pc.ctx, kind, True, e.value), success="Preference saved"))
                     ui.label("Email delivery status is recorded only as the provider reports it; without SMTP configured, emails are not sent." if not get_settings().smtp_host else "SMTP provider configured.").classes("text-caption tp-muted")
-                with ui.card().classes("tp-card w-full q-pa-md"):
-                    ui.label("API tokens (MCP & integrations)").classes("tp-h2")
-                    ui.label("Tokens act as you within this organization. Add the mcp:write scope only if an external agent may change data.").classes("text-caption tp-muted")
+                with panel("API tokens", "For MCP & integrations. Tokens act as you; add mcp:write only if an external agent may change data.", icon="key"):
                     for tid_, tname, prefix, scopes, revoked, exp in tokens:
-                        with ui.row().classes("w-full items-center justify-between"):
-                            ui.label(f"{tname} · {prefix}… · {', '.join(scopes) or 'role permissions'}" + (" · revoked" if revoked else "")).classes("text-body2")
+                        with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line"):
+                            with ui.column().classes("gap-0 col"):
+                                with ui.row().classes("items-center gap-2"):
+                                    ui.label(tname).classes("text-weight-medium").style("color:#101828")
+                                    if revoked:
+                                        ui.badge("Revoked", color="grey-6").classes("tp-chip")
+                                ui.label(f"{prefix}… · {', '.join(scopes) or 'role permissions'}").classes("tp-caption").style("font-family:ui-monospace,monospace")
                             if not revoked:
                                 ui.button("Revoke", on_click=lambda tid_=tid_: (run(lambda db: auth_service.revoke_api_token(db, pc.ctx, tid_), success="Revoked"), ui.navigate.reload())).props("flat dense color=negative")
                     with ui.row().classes("w-full gap-2 items-center"):
@@ -464,43 +584,57 @@ def settings_page(request: Request):
                         def mk():
                             res = run(lambda db: auth_service.create_api_token(db, pc.ctx, tn.value or "Token", ["mcp:write", "*"] if wr.value else []))
                             if res:
-                                with ui.dialog() as dlg, ui.card():
-                                    ui.label("Copy your token now — it won't be shown again.").classes("tp-h2")
+                                with ui.dialog() as dlg, ui.card().style("width:560px"):
+                                    ui.icon("key").classes("tp-feature-icon tp-tone-amber")
+                                    ui.label("Copy your token now — it won't be shown again.").classes("tp-h1").style("font-size:1.15rem")
                                     ui.code(res[1]).classes("w-full")
                                     ui.label(f"MCP endpoint: {get_settings().base_url}/mcp/  (Authorization: Bearer <token>)").classes("text-caption")
-                                    ui.button("Done", on_click=lambda: (dlg.close(), ui.navigate.reload())).props("flat")
+                                    ui.button("Done", on_click=lambda: (dlg.close(), ui.navigate.reload())).props("unelevated color=primary").classes("self-end")
                                 dlg.open()
                         if pc.can(Perm.API_TOKENS):
                             ui.button("Create token", on_click=mk).props("unelevated color=primary")
-            with ui.column().classes("col gap-4"):
-                with ui.card().classes("tp-card w-full q-pa-md"):
-                    ui.label("Plan & usage").classes("tp-h2")
-                    ui.label(f"{plan_name or '—'} · {sub_status or ''}" + (f" · period ends {period_end.astimezone(IST):%d %b %Y}" if period_end else "")).classes("text-weight-medium")
+            with ui.column().classes("w-full gap-4"):
+                with panel("Plan & usage", icon="data_usage"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.label(plan_name or "—").classes("text-weight-medium").style("font-size:1.05rem;color:#101828")
+                        if sub_status:
+                            ui.badge(sub_status.capitalize(), color="positive" if sub_status == "active" else "info").classes("tp-chip")
+                    if period_end:
+                        ui.label(f"Current period ends {period_end.astimezone(IST):%d %b %Y}").classes("tp-caption")
                     if pending:
                         ui.label(f"Requested change to {pending} — pending administrator (no payment processor configured).").classes("text-caption text-warning")
                     for metric, used in usage.items():
                         lim = limits.get(f"{metric}_per_month")
-                        ui.label(f"{metric.replace('_', ' ')}: {used:,} / {lim:,} this month" if lim else f"{metric}: {used}").classes("text-body2")
-                        if lim:
-                            ui.linear_progress(value=min(1, used / lim), show_value=False).props("rounded")
-                    ui.label(f"Storage: {storage / 1024**2:.1f} MB / {limits.get('storage_bytes', 0) / 1024**3:.0f} GB").classes("text-body2")
+                        with ui.column().classes("w-full gap-1"):
+                            with ui.row().classes("w-full justify-between"):
+                                ui.label(metric.replace("_", " ").capitalize()).classes("text-body2").style("color:#101828")
+                                ui.label(f"{used:,} / {lim:,} this month" if lim else f"{used:,}").classes("tp-caption tp-num")
+                            if lim:
+                                ui.linear_progress(value=min(1, used / lim), show_value=False, color="negative" if used / lim > .9 else "primary")
+                    with ui.column().classes("w-full gap-1"):
+                        with ui.row().classes("w-full justify-between"):
+                            ui.label("Storage").classes("text-body2").style("color:#101828")
+                            ui.label(f"{storage / 1024**2:.1f} MB / {limits.get('storage_bytes', 0) / 1024**3:.0f} GB").classes("tp-caption tp-num")
+                        if limits.get("storage_bytes"):
+                            ui.linear_progress(value=min(1, storage / limits["storage_bytes"]), show_value=False)
                     if pc.can(Perm.ORG_BILLING):
                         with ui.row().classes("gap-2 q-mt-sm"):
                             for code in ("starter", "professional", "enterprise"):
-                                ui.button(f"Request {code}", on_click=lambda code=code: run(lambda db: entitlements.request_plan_change(db, pc.ctx.organization_id, code, pc.ctx.user_id), success="Request recorded")).props("dense outline")
-                with ui.card().classes("tp-card w-full q-pa-md"):
-                    ui.label("Integrations").classes("tp-h2")
+                                ui.button(f"Request {code}", on_click=lambda code=code: run(lambda db: entitlements.request_plan_change(db, pc.ctx.organization_id, code, pc.ctx.user_id), success="Request recorded")).props("dense outline color=primary")
+                with panel("Integrations", icon="extension"):
                     for key, c in CONNECTORS.items():
-                        with ui.row().classes("w-full items-center justify-between"):
+                        with ui.row().classes("w-full items-center justify-between no-wrap tp-row-line gap-3"):
                             with ui.column().classes("gap-0 col"):
-                                ui.label(c.name).classes("text-weight-medium")
-                                ui.label(c.description).classes("text-caption tp-muted")
-                            ui.badge("available" if c.available() else "not configured", color="positive" if c.available() else "grey-6").props("outline")
+                                ui.label(c.name).classes("text-weight-medium").style("color:#101828")
+                                ui.label(c.description).classes("tp-caption")
+                            ui.badge("Available" if c.available() else "Not configured", color="positive" if c.available() else "grey-6").classes("tp-chip")
                 if pc.can(Perm.ORG_DELETE):
-                    with ui.card().classes("tp-card w-full q-pa-md").style("border-color:#F1C4BE"):
-                        ui.label("Danger zone").classes("tp-h2 text-negative")
-                        ui.label("Request deletion of this organization. Data and stored files are purged after a 30-day grace period.").classes("text-caption tp-muted")
-                        ui.button("Request deletion", on_click=lambda: run(lambda db: org_service.request_deletion(db, pc.ctx), success="Deletion requested")).props("outline color=negative")
+                    with ui.card().classes("tp-card tp-panel w-full").props("flat").style("border-color:#FECDCA;background:#FFFBFA"):
+                        with ui.row().classes("items-center gap-3 no-wrap"):
+                            ui.icon("warning_amber").classes("tp-panel-icon").style("background:#FEE4E2;color:#D92D20")
+                            ui.label("Danger zone").classes("tp-h2").style("color:#B42318")
+                        ui.label("Request deletion of this organization. Data and stored files are purged after a 30-day grace period.").classes("tp-caption")
+                        ui.button("Request deletion", icon="delete_forever", on_click=lambda: run(lambda db: org_service.request_deletion(db, pc.ctx), success="Deletion requested")).props("outline color=negative").classes("self-start")
 
 
 _ = (Decimal, format_inr_short)
@@ -511,10 +645,8 @@ def _template_card(pc, osettings):
     b = osettings.get("branding") or {}
     secs = list(((osettings.get("template") or {}).get("standard_sections")) or [])
     editable = pc.can(Perm.ORG_MANAGE)
-    with ui.card().classes("tp-card w-full q-pa-md"):
-        ui.label("Document template & branding").classes("tp-h2")
-        ui.label("Applied to generated DOCX, XLSX and PDF files. Standard sections are your own approved text (e.g. quality policy, "
-                 "after-sales support) and are inserted verbatim into technical responses, labelled as organization template text.").classes("text-caption tp-muted")
+    with panel("Document template & branding", "Applied to generated DOCX, XLSX and PDF files. Standard sections are your own approved text (e.g. quality policy, "
+               "after-sales support), inserted verbatim into technical responses.", icon="palette"):
         lh = ui.input("Letterhead name", value=b.get("letterhead_name") or osettings.get("letterhead_name", "")).props("outlined dense").classes("w-full")
         addr = ui.input("Address line", value=b.get("address_line", "")).props("outlined dense").classes("w-full")
         foot = ui.input("Footer text", value=b.get("footer_text", "")).props("outlined dense").classes("w-full")
@@ -522,7 +654,7 @@ def _template_card(pc, osettings):
         editors = []
         for i in range(3):
             cur = secs[i] if i < len(secs) else {}
-            with ui.expansion(f"Standard section {i + 1}" + (f": {cur['heading']}" if cur.get("heading") else "")).classes("w-full"):
+            with ui.expansion(f"Standard section {i + 1}" + (f": {cur['heading']}" if cur.get("heading") else ""), icon="notes").classes("w-full").style("border:1px solid #EAECF0"):
                 h = ui.input("Heading", value=cur.get("heading", "")).props("outlined dense").classes("w-full")
                 body = ui.textarea("Text", value=cur.get("body", "")).props("outlined autogrow").classes("w-full")
                 editors.append((h, body))
@@ -531,5 +663,5 @@ def _template_card(pc, osettings):
         if editable:
             ui.button("Save template", on_click=lambda: run(lambda db: org_service.update_document_template(
                 db, pc.ctx, branding_in={"letterhead_name": lh.value, "address_line": addr.value, "footer_text": foot.value, "primary_color": color.value},
-                standard_sections=[{"heading": h.value, "body": bd.value} for h, bd in editors]), success="Template saved")).props("unelevated color=primary")
+                standard_sections=[{"heading": h.value, "body": bd.value} for h, bd in editors]), success="Template saved")).props("unelevated color=primary").classes("self-end")
 
